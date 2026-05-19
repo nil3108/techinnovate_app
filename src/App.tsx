@@ -754,7 +754,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
     odoReading: '',
   })
 
-  const vehicles = storage.getVehicles().filter(v => v.ownerId === session.ownerId)
+  const vehicles = storage.getVehicles()
   const drivers = storage.getDrivers()
   const driver = drivers.find(d => d.id === session.userId)
 
