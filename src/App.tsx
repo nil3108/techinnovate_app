@@ -788,26 +788,19 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
   const [showCamera, setShowCamera] = useState<'video' | 'pump' | 'receipt' | 'odo' | null>(null)
   const [captures, setCaptures] = useState<Record<string, CameraCapture>>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const vehicles = storage.getVehicles()
+  const drivers = storage.getDrivers()
+  const driver = drivers.find(d => d.id === session.userId)
+  const defaultVeh = driver?.assignedVehicleId ? vehicles.find(v => v.id === driver.assignedVehicleId) : null
+
   const [form, setForm] = useState({
-    vehicleId: '',
+    vehicleId: defaultVeh?.id || '',
     station: 'VGL' as Fill['station'],
     kgs: '',
     rate: '',
     odoReading: '',
   })
-
-  const vehicles = storage.getVehicles()
-  const drivers = storage.getDrivers()
-  const driver = drivers.find(d => d.id === session.userId)
-  
-  console.log('Driver:', driver, 'Vehicles:', vehicles)
-
-  useEffect(() => {
-    if (driver?.assignedVehicleId) {
-      const v = vehicles.find(v => v.id === driver.assignedVehicleId)
-      if (v) setForm(f => ({...f, vehicleId: v.id}))
-    }
-  }, [])
 
   const handleCapture = (type: string, capture: CameraCapture) => {
     setCaptures(prev => ({ ...prev, [type]: capture }))
