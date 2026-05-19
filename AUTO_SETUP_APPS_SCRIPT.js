@@ -183,6 +183,13 @@ function doPost(e) {
       return json({success: true, id: data.id});
     }
     
+    // REGISTER OWNER
+    if (action === 'registerOwner') {
+      const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('Owners');
+      sheet.appendRow([data.id, data.name, data.email, data.phone, data.business, data.password, 'active', new Date().toISOString()]);
+      return json({success: true});
+    }
+    
     // ADD DRIVER
     if (action === 'addDriver') {
       const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('Drivers');
