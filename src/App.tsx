@@ -25,6 +25,10 @@ export default function App() {
     const loadDataFromBackend = async () => {
       if (!navigator.onLine) return
       
+      // Only sync once per session (check if already synced this session)
+      if (window.sessionStorage.getItem('synced')) return
+      window.sessionStorage.setItem('synced', 'true')
+      
       try {
         console.log('Fetching from backend...')
         const data = await googleSync.fetchAllData()
@@ -48,7 +52,7 @@ export default function App() {
             })
             storage.saveFills(mergedFills)
           }
-          window.location.reload()
+          // Remove auto-refresh, data will show on next manual refresh
         } else {
           console.log('No data or failed:', data)
         }
