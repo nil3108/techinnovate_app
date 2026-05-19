@@ -772,6 +772,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
   const [step, setStep] = useState(1)
   const [showCamera, setShowCamera] = useState<'video' | 'pump' | 'receipt' | 'odo' | null>(null)
   const [captures, setCaptures] = useState<Record<string, CameraCapture>>({})
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [form, setForm] = useState({
     vehicleId: '',
     station: 'VGL' as Fill['station'],
@@ -799,6 +800,8 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
   const total = parseFloat(form.kgs) * parseFloat(form.rate) || 0
 
   const handleSubmit = async () => {
+    if (isSubmitting) return
+    setIsSubmitting(true)
     try {
       const vehicle = vehicles.find(v => v.id === form.vehicleId || v.id === String(form.vehicleId))
       if (!vehicle) {
@@ -811,7 +814,6 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
       
       if (!vehicle) return
       
-      // Calculate distance between GPS points
       let distanceDiff = 0
       let mismatch = false
       if (captures.pump?.gps && captures.receipt?.gps) {
@@ -822,7 +824,6 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
         mismatch = distanceDiff > 500
       }
 
-      // Calculate fuel drop
       const fills = storage.getFills().filter(f => f.vehicleId === form.vehicleId)
       const lastFill = fills.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())[0]
       let fuelDropPercent = 0
@@ -831,124 +832,110 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
         fuelDropPercent = ((expectedKgs - parseFloat(form.kgs)) / expectedKgs) * 100
       }
 
+      const fillId = 'fill' + Date.now()
       const fillDate = new Date().toISOString().split('T')[0]
       const folderName = `${vehicle.plate}_${fillDate}`
       const timestamp = Date.now()
       
-      // Upload to Drive and get URLs back
-      console.log('Starting uploads...', Object.keys(captures))
-      const uploadPromises = []
+      // Create fill with empty URLs first, then upload media in background
+      const fill: Fill = {
+        id: fillId,
+        vehicleId: form.vehicleId,
+        driverId: session.userId,
+        time: new Date().toISOString(),
+        station: form.station,
+        kgs: parseFloat(form.kgs),
+        rate: parseFloat(form.rate),
+        total,
+        videoUrl: '',
+        pumpPhotoUrl: '',
+        receiptPhotoUrl: '',
+        odoPhotoUrl: '',
+        pumpGPS: captures.pump?.gps || null,
+        receiptGPS: captures.receipt?.gps || null,
+        odoGPS: captures.odo?.gps || null,
+        odoReading: parseInt(form.odoReading),
+        distanceDiff,
+        mismatch,
+        fuelDropPercent,
+        ownerId: session.ownerId,
+        verified: false,
+      }
+
+      // Save to localStorage immediately (instant)
+      const existingFills = storage.getFills()
+      storage.saveFills([...existingFills, fill])
+
+      // Redirect instantly
+      setView('driver-dash')
+
+      // Upload media to Drive in background (no blocking)
+      const uploadResults: {type: string; url: string}[] = []
+      const uploads = [
+        captures.video && googleSync.uploadMedia(captures.video.blob, `video_${timestamp}.webm`, folderName).then(url => ({type: 'video', url})).catch(() => ({type: 'video', url: ''})),
+        captures.pump && googleSync.uploadMedia(captures.pump.blob, `pump_${timestamp}.jpg`, folderName).then(url => ({type: 'pump', url})).catch(() => ({type: 'pump', url: ''})),
+        captures.receipt && googleSync.uploadMedia(captures.receipt.blob, `receipt_${timestamp}.jpg`, folderName).then(url => ({type: 'receipt', url})).catch(() => ({type: 'receipt', url: ''})),
+        captures.odo && googleSync.uploadMedia(captures.odo.blob, `odo_${timestamp}.jpg`, folderName).then(url => ({type: 'odo', url})).catch(() => ({type: 'odo', url: ''})),
+      ].filter(Boolean)
       
-      if (captures.video) {
-        console.log('Uploading video, size:', captures.video.blob.size)
-        uploadPromises.push(
-          googleSync.uploadMedia(captures.video.blob, `video_${timestamp}.webm`, folderName)
-            .then(url => ({type: 'video', url}))
-            .catch(e => { console.error('Video upload failed', e); return {type: 'video', url: ''} })
-        )
+      if (uploads.length > 0) {
+        const results = await Promise.all(uploads)
+        uploadResults.push(...results)
       }
-      if (captures.pump) {
-        console.log('Uploading pump, size:', captures.pump.blob.size)
-        uploadPromises.push(
-          googleSync.uploadMedia(captures.pump.blob, `pump_${timestamp}.jpg`, folderName)
-            .then(url => ({type: 'pump', url}))
-            .catch(e => { console.error('Pump upload failed', e); return {type: 'pump', url: ''} })
-        )
-      }
-      if (captures.receipt) {
-        console.log('Uploading receipt, size:', captures.receipt.blob.size)
-        uploadPromises.push(
-          googleSync.uploadMedia(captures.receipt.blob, `receipt_${timestamp}.jpg`, folderName)
-            .then(url => ({type: 'receipt', url}))
-            .catch(e => { console.error('Receipt upload failed', e); return {type: 'receipt', url: ''} })
-        )
-      }
-      if (captures.odo) {
-        console.log('Uploading odo, size:', captures.odo.blob.size)
-        uploadPromises.push(
-          googleSync.uploadMedia(captures.odo.blob, `odo_${timestamp}.jpg`, folderName)
-            .then(url => ({type: 'odo', url}))
-            .catch(e => { console.error('Odo upload failed', e); return {type: 'odo', url: ''} })
-        )
-      }
-      
-      // Wait for uploads (with timeout)
-      const results = await Promise.all(uploadPromises)
-      const urls = Object.fromEntries(results.map(r => [r.type, r.url]))
-      
-      const videoUrl = urls.video || ''
-      const pumpUrl = urls.pump || ''
-      const receiptUrl = urls.receipt || ''
-      const odoUrl = urls.odo || ''
-      
-      console.log('Uploads complete:', {video: !!videoUrl, pump: !!pumpUrl, receipt: !!receiptUrl, odo: !!odoUrl})
+      const urls = Object.fromEntries(uploadResults.map(r => [r.type, r.url]))
 
-    const fill: Fill = {
-      id: 'fill' + Date.now(),
-      vehicleId: form.vehicleId,
-      driverId: session.userId,
-      time: new Date().toISOString(),
-      station: form.station,
-      kgs: parseFloat(form.kgs),
-      rate: parseFloat(form.rate),
-      total,
-      videoUrl,
-      pumpPhotoUrl: pumpUrl,
-      receiptPhotoUrl: receiptUrl,
-      odoPhotoUrl: odoUrl,
-      pumpGPS: captures.pump?.gps || null,
-      receiptGPS: captures.receipt?.gps || null,
-      odoGPS: captures.odo?.gps || null,
-      odoReading: parseInt(form.odoReading),
-      distanceDiff,
-      mismatch,
-      fuelDropPercent,
-      ownerId: session.ownerId,
-      verified: false,
-    }
-
-    // Save to Google Sheets (or localStorage)
-    await googleSync.saveFill(fill)
-
-    // Create alerts
-    if (mismatch || fuelDropPercent > 20) {
-      const alerts = storage.getAlerts()
-      if (mismatch) {
-        alerts.push({
-          id: 'alert' + Date.now(),
-          time: new Date().toISOString(),
-          event: `Location mismatch: ${Math.round(distanceDiff)}m`,
-          user: session.name,
-          type: 'location_mismatch',
-          ownerId: session.ownerId,
-          resolved: false,
-        })
+      // Update fill with Drive URLs in localStorage + Sheets
+      const updatedFill = {
+        ...fill,
+        videoUrl: urls.video || '',
+        pumpPhotoUrl: urls.pump || '',
+        receiptPhotoUrl: urls.receipt || '',
+        odoPhotoUrl: urls.odo || '',
       }
-      if (fuelDropPercent > 20) {
-        alerts.push({
-          id: 'alert' + Date.now() + 1,
-          time: new Date().toISOString(),
-          event: `Fuel drop ${fuelDropPercent.toFixed(1)}%`,
-          user: session.name,
-          type: 'fuel_drop',
-          ownerId: session.ownerId,
-          resolved: false,
-        })
+      const allFills = storage.getFills().map(f => f.id === fillId ? updatedFill : f)
+      storage.saveFills(allFills)
+      await googleSync.saveFill(updatedFill)
+
+      // Create alerts
+      if (mismatch || fuelDropPercent > 20) {
+        const alerts = storage.getAlerts()
+        if (mismatch) {
+          alerts.push({
+            id: 'alert' + Date.now(),
+            time: new Date().toISOString(),
+            event: `Location mismatch: ${Math.round(distanceDiff)}m`,
+            user: session.name,
+            type: 'location_mismatch',
+            ownerId: session.ownerId,
+            resolved: false,
+          })
+        }
+        if (fuelDropPercent > 20) {
+          alerts.push({
+            id: 'alert' + Date.now() + 1,
+            time: new Date().toISOString(),
+            event: `Fuel drop ${fuelDropPercent.toFixed(1)}%`,
+            user: session.name,
+            type: 'fuel_drop',
+            ownerId: session.ownerId,
+            resolved: false,
+          })
+        }
+        storage.saveAlerts(alerts)
       }
-      storage.saveAlerts(alerts)
-    }
 
-    // Update vehicle odo
-    const allVehicles = storage.getVehicles()
-    const updatedVehicles = allVehicles.map(v => 
-      v.id === form.vehicleId ? { ...v, currentOdo: parseInt(form.odoReading) } : v
-    )
-    storage.saveVehicles(updatedVehicles)
+      // Update vehicle odo
+      const allVehicles = storage.getVehicles()
+      const updatedVehicles = allVehicles.map(v => 
+        v.id === form.vehicleId ? { ...v, currentOdo: parseInt(form.odoReading) } : v
+      )
+      storage.saveVehicles(updatedVehicles)
 
-    setView('driver-dash')
+      console.log('Fill submitted + media uploaded in background')
     } catch (error) {
       console.error('Submit error:', error)
-      alert('Error submitting fill: ' + error)
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -1158,9 +1145,12 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
                 {captures.odo && (
                   <button
                     onClick={handleSubmit}
-                    className="w-full h-[56px] bg-[#E10600] text-white font-semibold rounded-2xl mt-8"
+                    disabled={isSubmitting}
+                    className="w-full h-[56px] bg-[#E10600] text-white font-semibold rounded-2xl mt-8 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
-                    Submit Fill Entry
+                    {isSubmitting ? (
+                      <><RotateCcw className="w-4 h-4 animate-spin" /> Saving...</>
+                    ) : 'Submit Fill Entry'}
                   </button>
                 )}
               </div>
@@ -1200,11 +1190,14 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
 
                 <button
                   onClick={handleSubmit}
-                  disabled={!captures.odo || !form.odoReading}
+                  disabled={!captures.odo || !form.odoReading || isSubmitting}
                   className="w-full max-w-[280px] h-[56px] bg-[#10B981] disabled:bg-[#E2E6EB] disabled:text-[#9CA3AF] rounded-2xl font-bold text-[17px] mt-8 mx-auto flex items-center justify-center gap-2"
                 >
-                  <CheckCircle2 className="w-5 h-5" />
-                  {t('submit', lang)}
+                  {isSubmitting ? (
+                    <><RotateCcw className="w-4 h-4 animate-spin" /> Saving...</>
+                  ) : (
+                    <><CheckCircle2 className="w-5 h-5" /> {t('submit', lang)}</>
+                  )}
                 </button>
               </div>
             )}
