@@ -26,8 +26,12 @@ export default function App() {
       if (!navigator.onLine) return
       
       try {
+        console.log('Fetching from backend...')
         const data = await googleSync.fetchAllData()
+        console.log('Backend data:', data)
+        
         if (data?.success) {
+          console.log('Drivers from sheet:', data.drivers)
           if (data.drivers?.length > 0) {
             storage.saveDrivers(data.drivers)
           }
@@ -45,9 +49,11 @@ export default function App() {
             storage.saveFills(mergedFills)
           }
           window.location.reload()
+        } else {
+          console.log('No data or failed:', data)
         }
       } catch (e) {
-        console.log('Backend sync skipped:', e)
+        console.log('Backend sync error:', e)
       }
     }
     

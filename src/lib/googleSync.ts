@@ -169,11 +169,20 @@ export const googleSync = {
   async fetchAllData(): Promise<any> {
     if (!this.enabled) return null
     try {
-      const response = await fetch(`${APPS_SCRIPT_URL}?action=getData`)
-      return await response.json()
+      const response = await fetch(APPS_SCRIPT_URL + '?action=getData', {
+        method: 'GET',
+        redirect: 'follow'
+      })
+      const text = await response.text()
+      try {
+        return JSON.parse(text)
+      } catch (e) {
+        console.log('Parse error:', text.substring(0, 200))
+        return { success: false }
+      }
     } catch (error) {
       console.error('Fetch failed:', error)
-      return null
+      return { success: false }
     }
   },
   
