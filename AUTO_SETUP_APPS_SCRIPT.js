@@ -1,6 +1,36 @@
 // CNG FUEL TRACKER - AUTO SETUP
 // Paste this in Apps Script, run setup(), then deploy
 
+function restoreDemoData() {
+  const props = PropertiesService.getScriptProperties();
+  const SHEET_ID = props.getProperty('SHEET_ID');
+  if (!SHEET_ID) return 'Run setup() first';
+  
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  
+  // Clear and restore Owners
+  const ownersSheet = ss.getSheetByName('Owners');
+  ownersSheet.clear();
+  ownersSheet.appendRow(['id', 'name', 'email', 'phone', 'business', 'password', 'status', 'createdAt']);
+  ownersSheet.appendRow(['own1', 'Rajesh Patel', 'owner@demo.com', '9876543210', 'Patel Transport', 'demo123', 'active', new Date().toISOString()]);
+  
+  // Clear and restore Drivers
+  const driversSheet = ss.getSheetByName('Drivers');
+  driversSheet.clear();
+  driversSheet.appendRow(['id', 'name', 'code', 'assignedVehicleId', 'ownerId', 'status', 'createdAt']);
+  driversSheet.appendRow(['drv1', 'Amit Kumar', '1234', 'veh1', 'own1', 'active', new Date().toISOString()]);
+  driversSheet.appendRow(['drv2', 'Suresh Singh', '5678', 'veh2', 'own1', 'active', new Date().toISOString()]);
+  
+  // Clear and restore Vehicles
+  const vehiclesSheet = ss.getSheetByName('Vehicles');
+  vehiclesSheet.clear();
+  vehiclesSheet.appendRow(['id', 'plate', 'model', 'initialOdo', 'currentOdo', 'capacity', 'ownerId', 'status']);
+  vehiclesSheet.appendRow(['veh1', 'GJ-01-AB-1234', 'Tata Ace CNG', 45000, 47820, 60, 'own1', 'active']);
+  vehiclesSheet.appendRow(['veh2', 'GJ-05-XY-5678', 'Ashok Leyland Dost', 32000, 34150, 75, 'own1', 'active']);
+  
+  return 'Demo data restored!';
+}
+
 function setup() {
   Logger.log('=== CNG TRACKER AUTO SETUP ===');
   
