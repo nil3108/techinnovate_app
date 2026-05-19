@@ -68,11 +68,9 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#F5F6F8] text-[#111827] flex flex-col">
       {/* Header */}
-      <header className="sticky top-0 z-40 bg-white border-b border-[#E2E6EB]">
-        <div className="max-w-[480px] mx-auto px-4 h-[64px] flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img src="logo.jpg" alt="Techinnovate" className="w-12 h-10 rounded-lg object-contain bg-white shadow-md" />
-          </div>
+      <header className="sticky top-0 z-40 bg-white border-b border-gray-100">
+        <div className="max-w-[480px] mx-auto px-4 h-14 flex items-center justify-between">
+          <img src="logo.jpg" alt="Techinnovate" className="h-8" />
           
           <div className="flex items-center gap-2">
             {!isOnline && (
