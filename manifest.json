@@ -1,18 +1,18 @@
 {
-  "name": "CNG Fuel Tracker",
+  "name": "Techinnovate Fleet",
   "short_name": "CNG Tracker",
-  "description": "Fleet CNG Monitoring System by Techinnovate Mobility",
+  "description": "Fleet CNG Monitoring System",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0a0a0a",
-  "theme_color": "#EE2726",
+  "background_color": "#F5F6F8",
+  "theme_color": "#E10600",
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/favicon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "src": "/logo.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any"
     }
   ]
 }
