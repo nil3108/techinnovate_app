@@ -234,6 +234,19 @@ function doPost(e) {
       return json({success: true});
     }
     
+    // UPDATE DRIVER
+    if (action === 'updateDriver') {
+      const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('Drivers');
+      const values = sheet.getDataRange().getValues();
+      for (let i = 1; i < values.length; i++) {
+        if (values[i][0] === data.id) {
+          sheet.getRange(i + 1, 3).setValue(data.code);
+          break;
+        }
+      }
+      return json({success: true});
+    }
+    
     // DELETE DRIVER
     if (action === 'deleteDriver') {
       const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('Drivers');

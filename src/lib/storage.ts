@@ -124,7 +124,15 @@ export const storage = {
   getVehicles: (): Vehicle[] => JSON.parse(localStorage.getItem(KEYS.VEHICLES) || '[]'),
   saveVehicles: (vehicles: Vehicle[]) => localStorage.setItem(KEYS.VEHICLES, JSON.stringify(vehicles)),
   
-  getFills: (): Fill[] => JSON.parse(localStorage.getItem(KEYS.FILLS) || '[]'),
+  getFills: (): Fill[] => {
+    const fills: Fill[] = JSON.parse(localStorage.getItem(KEYS.FILLS) || '[]')
+    return fills.map(f => ({
+      ...f,
+      pumpGPS: parseGPS(f.pumpGPS),
+      receiptGPS: parseGPS(f.receiptGPS),
+      odoGPS: parseGPS(f.odoGPS),
+    }))
+  },
   saveFills: (fills: Fill[]) => {
     try {
       localStorage.setItem(KEYS.FILLS, JSON.stringify(fills))
@@ -163,6 +171,16 @@ export const storage = {
   
   getLanguage: (): string => localStorage.getItem(KEYS.LANGUAGE) || 'en',
   setLanguage: (lang: string) => localStorage.setItem(KEYS.LANGUAGE, lang),
+}
+
+function parseGPS(v: any): {lat: number; lng: number} | null {
+  if (!v) return null
+  if (typeof v === 'object' && 'lat' in v && 'lng' in v) return v
+  if (typeof v === 'string') {
+    const parts = v.split(',').map(Number)
+    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) return {lat: parts[0], lng: parts[1]}
+  }
+  return null
 }
 
 export function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {

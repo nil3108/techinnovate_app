@@ -2,7 +2,7 @@ import type { Fill } from './types'
 import { storage } from './storage'
 
 // Your deployed Apps Script
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzUpsxThHu-3tE509FcKe6TyMRsqXX2k6t7_F-FPjN7P6dD6j4ZWyBmCwNxjUX59tu2gA/exec'
+export const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzUpsxThHu-3tE509FcKe6TyMRsqXX2k6t7_F-FPjN7P6dD6j4ZWyBmCwNxjUX59tu2gA/exec'
 
 export const googleSync = {
   enabled: true,
@@ -203,6 +203,18 @@ export const googleSync = {
     } catch { return false }
   },
   
+  async updateDriver(driver: any): Promise<boolean> {
+    if (!this.enabled) return true
+    try {
+      await fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        body: JSON.stringify({ action: 'updateDriver', id: driver.id, code: driver.code }),
+      })
+      return true
+    } catch { return false }
+  },
+
   async addVehicle(vehicle: any): Promise<boolean> {
     if (!this.enabled) return true
     try {

@@ -8,7 +8,7 @@ import {
   Pause, RotateCcw, Check, Globe
 } from 'lucide-react'
 import { storage, calculateDistance } from './lib/storage'
-import { googleSync } from './lib/googleSync'
+import { googleSync, APPS_SCRIPT_URL } from './lib/googleSync'
 import { t } from './lib/translations'
 import type { Language, Role, Driver, Owner, Vehicle, Fill, Alert, CameraCapture } from './lib/types'
 import { OwnerRegister } from './components/OwnerRegister'
@@ -61,6 +61,15 @@ export default function App() {
             console.log('Fill keys:', Object.keys(data.fills[0] || {}))
             console.log('First fill raw:', data.fills[0])
             // Handle sheet where first column header might be ' ' instead of 'id'
+            const parseGPS = (v: any): {lat: number; lng: number} | null => {
+              if (!v) return null
+              if (typeof v === 'object' && 'lat' in v && 'lng' in v) return v
+              if (typeof v === 'string') {
+                const parts = v.split(',').map(Number)
+                if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) return {lat: parts[0], lng: parts[1]}
+              }
+              return null
+            }
             const cleanFills = data.fills.map((f: any) => {
               const id = f.id || f[' '] || 'fill_' + Date.now() + '_' + Math.random().toString(36).slice(2,8)
               return {
@@ -70,6 +79,9 @@ export default function App() {
                 pumpPhotoUrl: f.pumpPhotoUrl && !f.pumpPhotoUrl.startsWith('data:') ? f.pumpPhotoUrl : '',
                 receiptPhotoUrl: f.receiptPhotoUrl && !f.receiptPhotoUrl.startsWith('data:') ? f.receiptPhotoUrl : '',
                 odoPhotoUrl: f.odoPhotoUrl && !f.odoPhotoUrl.startsWith('data:') ? f.odoPhotoUrl : '',
+                pumpGPS: parseGPS(f.pumpGPS),
+                receiptGPS: parseGPS(f.receiptGPS),
+                odoGPS: parseGPS(f.odoGPS),
               }
             })
             storage.saveFills(cleanFills)
@@ -87,16 +99,23 @@ export default function App() {
       }
     }
     
-    const savedLang = storage.getLanguage() as Language
-    setLang(savedLang)
-    
+    // Auto-logout if app was removed from recent apps (sessionStorage cleared = fresh load)
     const savedSession = storage.getSession()
-    if (savedSession) {
+    const hasSessionToken = !!window.sessionStorage.getItem('session_token')
+    if (savedSession && !hasSessionToken) {
+      storage.clearSession()
+      setSession(null)
+      setView('welcome')
+    } else if (savedSession) {
       setSession(savedSession)
       if (savedSession.role === 'driver') setView('driver-dash')
       else if (savedSession.role === 'owner') setView('owner-dash')
       else if (savedSession.role === 'admin') setView('admin-dash')
     }
+    window.sessionStorage.setItem('session_token', 'active')
+
+    const savedLang = storage.getLanguage() as Language
+    setLang(savedLang)
 
     loadDataFromBackend()
 
@@ -190,7 +209,7 @@ function WelcomeView({ lang, setView }: { lang: Language; setView: (v: View) => 
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
-      className="p-6 pt-8"
+      className="p-6 pt-8 flex flex-col min-h-[calc(100vh-3.5rem)]"
     >
       <div className="text-center mb-10">
         <img src="logo.jpg" alt="Techinnovate" className="w-48 mx-auto mb-6" />
@@ -223,20 +242,16 @@ function WelcomeView({ lang, setView }: { lang: Language; setView: (v: View) => 
         </motion.button>
       </div>
 
-      <div className="mt-8 text-center space-y-1">
-        <button onClick={() => setView('owner-login')} className="text-[#6B7280] hover:text-[#E10600] text-[14px] underline underline-offset-2 transition-colors">
+      <div className="flex-1" />
+
+      <div className="text-center pb-4">
+        <button onClick={() => setView('owner-login')} className="text-[#9CA3AF] hover:text-[#6B7280] text-[11px] transition-colors">
           {lang === 'hi' ? 'मालिक लॉगिन' : lang === 'gu' ? 'માલિક લૉગિન' : 'Owner Login'}
         </button>
-        <span className="text-[#D1D5DB] mx-2 text-[13px]">|</span>
-        <button onClick={() => setView('admin-login')} className="text-[#6B7280] hover:text-[#E10600] text-[14px] underline underline-offset-2 transition-colors">
+        <span className="text-[#D1D5DB] mx-1.5 text-[10px]">|</span>
+        <button onClick={() => setView('admin-login')} className="text-[#9CA3AF] hover:text-[#6B7280] text-[11px] transition-colors">
           {lang === 'hi' ? 'एडमिन लॉगिन' : lang === 'gu' ? 'એડમિન લૉગિન' : 'Admin Login'}
         </button>
-      </div>
-
-      <div className="mt-12 p-4 rounded-2xl bg-gray-50">
-        <p className="text-[12px] text-[#6B7280] text-center">
-          Demo: Driver 1234/5678 | Owner: owner@demo.com/demo123 | Admin: admin@cng.com/admin123
-        </p>
       </div>
     </motion.div>
   )
@@ -777,7 +792,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
     vehicleId: '',
     station: 'VGL' as Fill['station'],
     kgs: '',
-    rate: '78.5',
+    rate: '',
     odoReading: '',
   })
 
@@ -894,7 +909,38 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
       }
       const allFills = storage.getFills().map(f => f.id === fillId ? updatedFill : f)
       storage.saveFills(allFills)
-      await googleSync.saveFill(updatedFill)
+      // Sync to Sheets in background (direct call, avoid saveFill's localStorage duplicate)
+      const sheetPayload = {
+        action: 'addFill',
+        id: updatedFill.id,
+        vehicleId: updatedFill.vehicleId,
+        driverId: updatedFill.driverId,
+        time: updatedFill.time,
+        station: updatedFill.station,
+        kgs: updatedFill.kgs,
+        rate: updatedFill.rate,
+        total: updatedFill.total,
+        videoUrl: updatedFill.videoUrl,
+        pumpPhotoUrl: updatedFill.pumpPhotoUrl,
+        receiptPhotoUrl: updatedFill.receiptPhotoUrl,
+        odoPhotoUrl: updatedFill.odoPhotoUrl,
+        pumpGPS: updatedFill.pumpGPS ? `${updatedFill.pumpGPS.lat},${updatedFill.pumpGPS.lng}` : '',
+        receiptGPS: updatedFill.receiptGPS ? `${updatedFill.receiptGPS.lat},${updatedFill.receiptGPS.lng}` : '',
+        odoGPS: updatedFill.odoGPS ? `${updatedFill.odoGPS.lat},${updatedFill.odoGPS.lng}` : '',
+        odoReading: updatedFill.odoReading,
+        distanceDiff: updatedFill.distanceDiff,
+        mismatch: updatedFill.mismatch,
+        fuelDropPercent: updatedFill.fuelDropPercent,
+        ownerId: updatedFill.ownerId,
+        verified: updatedFill.verified,
+      }
+      fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'cors',
+        redirect: 'follow',
+        headers: {'Content-Type': 'text/plain;charset=utf-8'},
+        body: JSON.stringify(sheetPayload),
+      }).then(r => r.text()).then(t => console.log('Sheet sync response:', t.substring(0,100))).catch(e => console.error('Sheet sync error:', e))
 
       // Create alerts
       if (mismatch || fuelDropPercent > 20) {
@@ -1012,7 +1058,9 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
                     <img src={captures.pump.dataUrl} alt="Pump" className="w-full max-w-[300px] mx-auto rounded-xl" />
                     {captures.pump.gps && (
                       <p className="text-[11px] text-[#6B7280] mt-2 flex items-center justify-center gap-1">
-                        <MapPin className="w-3 h-3" /> GPS captured
+                        <MapPin className="w-3 h-3" />
+                        {captures.pump.gps.lat.toFixed(4)}, {captures.pump.gps.lng.toFixed(4)}
+                        <a href={`https://www.google.com/maps/dir/?api=1&destination=${captures.pump.gps.lat},${captures.pump.gps.lng}`} target="_blank" rel="noopener noreferrer" className="text-[#E10600] hover:underline ml-1">View</a>
                       </p>
                     )}
                   </div>
@@ -1037,6 +1085,13 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
                 {captures.receipt && (
                   <div className="mt-4">
                     <img src={captures.receipt.dataUrl} alt="Receipt" className="w-full max-w-[300px] mx-auto rounded-xl" />
+                    {captures.receipt.gps && (
+                      <p className="text-[11px] text-[#6B7280] mt-2 flex items-center justify-center gap-1">
+                        <MapPin className="w-3 h-3" />
+                        {captures.receipt.gps.lat.toFixed(4)}, {captures.receipt.gps.lng.toFixed(4)}
+                        <a href={`https://www.google.com/maps/dir/?api=1&destination=${captures.receipt.gps.lat},${captures.receipt.gps.lng}`} target="_blank" rel="noopener noreferrer" className="text-[#E10600] hover:underline ml-1">View</a>
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -1088,7 +1143,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
                         type="number"
                         value={form.rate}
                         onChange={e => setForm(f => ({...f, rate: e.target.value}))}
-                        placeholder="78.5"
+                        placeholder="0.0"
                         className="w-full h-[52px] px-4 bg-white border border-[#E2E6EB] rounded-xl text-[20px] font-mono text-center focus:border-[#3B82F6] focus:outline-none"
                       />
                     </div>
@@ -1113,7 +1168,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
                   
                   <button
                     onClick={() => setStep(5)}
-                    disabled={!form.kgs || !form.vehicleId}
+                    disabled={!form.kgs || !form.rate || !form.vehicleId}
                     className="w-full h-[56px] bg-[#3B82F6] text-white font-semibold rounded-2xl mt-4 disabled:opacity-50"
                   >
                     Continue to Odometer
@@ -1139,13 +1194,20 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
                 {captures.odo && (
                   <div className="mt-4">
                     <img src={captures.odo.dataUrl} alt="Odometer" className="w-full max-w-[300px] mx-auto rounded-xl" />
+                    {captures.odo.gps && (
+                      <p className="text-[11px] text-[#6B7280] mt-2 flex items-center justify-center gap-1">
+                        <MapPin className="w-3 h-3" />
+                        {captures.odo.gps.lat.toFixed(4)}, {captures.odo.gps.lng.toFixed(4)}
+                        <a href={`https://www.google.com/maps/dir/?api=1&destination=${captures.odo.gps.lat},${captures.odo.gps.lng}`} target="_blank" rel="noopener noreferrer" className="text-[#E10600] hover:underline ml-1">View</a>
+                      </p>
+                    )}
                   </div>
                 )}
                 
                 {captures.odo && (
                   <button
                     onClick={handleSubmit}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || !form.rate}
                     className="w-full h-[56px] bg-[#E10600] text-white font-semibold rounded-2xl mt-8 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {isSubmitting ? (
@@ -1185,12 +1247,19 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
                 {captures.odo && (
                   <div className="mt-4">
                     <img src={captures.odo.dataUrl} alt="Odo" className="w-full max-w-[300px] mx-auto rounded-xl" />
+                    {captures.odo.gps && (
+                      <p className="text-[11px] text-[#6B7280] mt-2 flex items-center justify-center gap-1">
+                        <MapPin className="w-3 h-3" />
+                        {captures.odo.gps.lat.toFixed(4)}, {captures.odo.gps.lng.toFixed(4)}
+                        <a href={`https://www.google.com/maps/dir/?api=1&destination=${captures.odo.gps.lat},${captures.odo.gps.lng}`} target="_blank" rel="noopener noreferrer" className="text-[#E10600] hover:underline ml-1">View</a>
+                      </p>
+                    )}
                   </div>
                 )}
 
                 <button
                   onClick={handleSubmit}
-                  disabled={!captures.odo || !form.odoReading || isSubmitting}
+                  disabled={!captures.odo || !form.odoReading || !form.rate || isSubmitting}
                   className="w-full max-w-[280px] h-[56px] bg-[#10B981] disabled:bg-[#E2E6EB] disabled:text-[#9CA3AF] rounded-2xl font-bold text-[17px] mt-8 mx-auto flex items-center justify-center gap-2"
                 >
                   {isSubmitting ? (
@@ -1233,6 +1302,8 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
   const [tab, setTab] = useState<'home' | 'fills' | 'vehicles' | 'drivers' | 'media' | 'alerts'>('home')
   const [showAddDriver, setShowAddDriver] = useState(false)
   const [showAddVehicle, setShowAddVehicle] = useState(false)
+  const [editingDriver, setEditingDriver] = useState<Driver | null>(null)
+  const [editCode, setEditCode] = useState('')
   const [lightboxMedia, setLightboxMedia] = useState<{ url: string; label: string } | null>(null)
 
   const fills = storage.getFills()
@@ -1329,7 +1400,11 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                   <div key={d.id} className="p-3.5 rounded-xl bg-white border border-[#E2E6EB] flex items-center justify-between">
                     <div>
                       <p className="font-medium text-[14px] text-[#111827]">{d.name}</p>
-                      <p className="text-[12px] text-[#6B7280]">Code: {d.code} • {v?.plate || 'No vehicle'}</p>
+                      <p className="text-[12px] text-[#6B7280]">
+                        Code: {d.code}
+                        <button onClick={() => { setEditingDriver(d); setEditCode(d.code) }} className="ml-1.5 p-0.5 hover:bg-[#F5F6F8] rounded inline-flex align-middle">
+                          <svg className="w-3 h-3 text-[#9CA3AF]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                        </button> • {v?.plate || 'No vehicle'}</p>
                     </div>
                     <button onClick={async () => {
                       storage.saveDrivers(drivers.filter(x => x.id !== d.id))
@@ -1362,8 +1437,36 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                     <p className="text-[11px] text-[#6B7280]">
                       {new Date(fill.time).toLocaleString()} • ODO: {fill.odoReading.toLocaleString()}
                     </p>
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+                      {fill.pumpGPS && (
+                        <span className="text-[10px] text-[#6B7280] flex items-center gap-0.5">
+                          <MapPin className="w-2.5 h-2.5" /> Pump:
+                          <a href={`https://www.google.com/maps/dir/?api=1&destination=${fill.pumpGPS.lat},${fill.pumpGPS.lng}`} target="_blank" rel="noopener noreferrer" className="text-[#E10600] hover:underline ml-0.5">View</a>
+                        </span>
+                      )}
+                      {fill.receiptGPS && (
+                        <span className="text-[10px] text-[#6B7280] flex items-center gap-0.5">
+                          <MapPin className="w-2.5 h-2.5" /> Receipt:
+                          <a href={`https://www.google.com/maps/dir/?api=1&destination=${fill.receiptGPS.lat},${fill.receiptGPS.lng}`} target="_blank" rel="noopener noreferrer" className="text-[#E10600] hover:underline ml-0.5">View</a>
+                        </span>
+                      )}
+                      {fill.odoGPS && (
+                        <span className="text-[10px] text-[#6B7280] flex items-center gap-0.5">
+                          <MapPin className="w-2.5 h-2.5" /> Odo:
+                          <a href={`https://www.google.com/maps/dir/?api=1&destination=${fill.odoGPS.lat},${fill.odoGPS.lng}`} target="_blank" rel="noopener noreferrer" className="text-[#E10600] hover:underline ml-0.5">View</a>
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <button
+                  <div className="flex gap-1">
+                    {fill.pumpGPS && (
+                      <a href={`https://www.google.com/maps/dir/?api=1&destination=${fill.pumpGPS.lat},${fill.pumpGPS.lng}`} target="_blank" rel="noopener noreferrer"
+                        className="px-2.5 py-1.5 rounded-lg bg-white border border-[#E2E6EB] text-[#E10600] text-[11px] font-medium hover:bg-[#FDE8E8] transition-colors flex items-center gap-1"
+                      >
+                        <MapPin className="w-3 h-3" /> Directions
+                      </a>
+                    )}
+                    <button
                     onClick={() => {
                       const updated = fills.map(f => f.id === fill.id ? { ...f, verified: !f.verified } : f)
                       storage.saveFills(updated)
@@ -1376,11 +1479,12 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                     {fill.verified ? 'Verified' : 'Verify'}
                   </button>
                 </div>
-                <div className={`px-2.5 py-1 rounded-full text-[11px] font-medium inline-flex items-center gap-1 ${
+              </div>
+              <div className={`px-2.5 py-1 rounded-full text-[11px] font-medium inline-flex items-center gap-1 ${
                   fill.mismatch ? 'bg-[#FEE2E2] text-[#991B1B]' : 'bg-[#DCFCE7] text-[#166534]'
                 }`}>
                   <MapPin className="w-3 h-3" />
-                  {fill.mismatch ? `${Math.round(fill.distanceDiff)}m off` : '<500m'}
+                  {fill.mismatch ? `${Math.round(fill.distanceDiff)}m off` : '\u003C500m'}
                 </div>
               </div>
             )
@@ -1490,7 +1594,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                     fill.mismatch ? 'bg-[#FEE2E2] text-[#991B1B]' : 'bg-[#DCFCE7] text-[#166534]'
                   }`}>
                     <MapPin className="w-3 h-3" />
-                    {fill.mismatch ? `${Math.round(fill.distanceDiff)}m` : '<500m'}
+                    {fill.mismatch ? `${Math.round(fill.distanceDiff)}m` : '\u003C500m'}
                   </div>
                 </div>
                 
@@ -1531,7 +1635,15 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                       <p className="text-[14px] font-medium text-[#111827]">₹{fill.total}</p>
                     </div>
                   </div>
-                  <button
+                  <div className="flex gap-1">
+                    {fill.pumpGPS && (
+                      <a href={`https://www.google.com/maps/dir/?api=1&destination=${fill.pumpGPS.lat},${fill.pumpGPS.lng}`} target="_blank" rel="noopener noreferrer"
+                        className="px-2.5 py-1.5 rounded-lg border border-[#E2E6EB] text-[#E10600] text-[11px] font-medium hover:bg-[#FDE8E8] transition-colors flex items-center gap-1"
+                      >
+                        <MapPin className="w-3 h-3" /> Directions
+                      </a>
+                    )}
+                    <button
                     onClick={() => {
                       const updated = fills.map(f => f.id === fill.id ? { ...f, verified: !f.verified } : f)
                       storage.saveFills(updated)
@@ -1545,6 +1657,21 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                   </button>
                 </div>
               </div>
+              <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-2 pt-2 border-t border-[#E2E6EB]">
+                {fill.receiptGPS && (
+                  <span className="text-[10px] text-[#6B7280] flex items-center gap-0.5">
+                    <MapPin className="w-2.5 h-2.5" /> Receipt GPS:
+                    <a href={`https://www.google.com/maps/dir/?api=1&destination=${fill.receiptGPS.lat},${fill.receiptGPS.lng}`} target="_blank" rel="noopener noreferrer" className="text-[#E10600] hover:underline ml-0.5">View</a>
+                  </span>
+                )}
+                {fill.odoGPS && (
+                  <span className="text-[10px] text-[#6B7280] flex items-center gap-0.5">
+                    <MapPin className="w-2.5 h-2.5" /> Odo GPS:
+                    <a href={`https://www.google.com/maps/dir/?api=1&destination=${fill.odoGPS.lat},${fill.odoGPS.lng}`} target="_blank" rel="noopener noreferrer" className="text-[#E10600] hover:underline ml-0.5">View</a>
+                  </span>
+                )}
+              </div>
+            </div>
             )
           })}
         </div>
@@ -1605,6 +1732,31 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
       )}
       {showAddVehicle && (
         <AddVehicleModal lang={lang} ownerId={session.ownerId} onClose={() => setShowAddVehicle(false)} />
+      )}
+      {editingDriver && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur flex items-center justify-center p-4" onClick={() => setEditingDriver(null)}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-[16px] font-semibold text-[#111827] mb-1">Change Driver Code</h3>
+            <p className="text-[13px] text-[#6B7280] mb-4">{editingDriver.name}</p>
+            <input
+              value={editCode}
+              onChange={e => setEditCode(e.target.value)}
+              placeholder="New code"
+              maxLength={10}
+              className="w-full px-4 py-2.5 rounded-xl border border-[#E2E6EB] text-[14px] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#E10600]/20 focus:border-[#E10600] mb-4"
+            />
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setEditingDriver(null)} className="px-4 py-2 rounded-xl bg-[#F5F6F8] text-[#6B7280] text-[13px] font-medium">Cancel</button>
+              <button onClick={async () => {
+                if (!editCode.trim()) return
+                const updated = drivers.map(d => d.id === editingDriver.id ? { ...d, code: editCode.trim() } : d)
+                storage.saveDrivers(updated)
+                await googleSync.updateDriver({ id: editingDriver.id, code: editCode.trim() })
+                window.location.reload()
+              }} className="px-4 py-2 rounded-xl bg-[#E10600] text-white text-[13px] font-medium">Save</button>
+            </div>
+          </div>
+        </div>
       )}
     </motion.div>
   )
