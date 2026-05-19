@@ -25,6 +25,17 @@ export default function App() {
     const loadDataFromBackend = async () => {
       if (!navigator.onLine) return
       
+      // Check for clear parameter
+      const urlParams = new URLSearchParams(window.location.search)
+      if (urlParams.get('clear') === 'data') {
+        localStorage.removeItem('cng_drivers')
+        localStorage.removeItem('cng_vehicles')
+        localStorage.removeItem('cng_fills')
+        localStorage.removeItem('cng_alerts')
+        window.location.href = window.location.pathname
+        return
+      }
+      
       // Only sync once per session (check if already synced this session)
       if (window.sessionStorage.getItem('synced')) return
       window.sessionStorage.setItem('synced', 'true')
@@ -36,23 +47,16 @@ export default function App() {
         
         if (data?.success) {
           console.log('Drivers from sheet:', data.drivers)
-          if (data.drivers?.length > 0) {
+          // Always use sheet data completely (replace local)
+          if (data.drivers) {
             storage.saveDrivers(data.drivers)
           }
-          if (data.vehicles?.length > 0) {
+          if (data.vehicles) {
             storage.saveVehicles(data.vehicles)
           }
-          if (data.fills?.length > 0) {
-            const localFills = storage.getFills()
-            const mergedFills = [...localFills]
-            data.fills.forEach((f: any) => {
-              if (!mergedFills.find(lf => lf.id === f.id)) {
-                mergedFills.push(f)
-              }
-            })
-            storage.saveFills(mergedFills)
+          if (data.fills) {
+            storage.saveFills(data.fills)
           }
-          // Remove auto-refresh, data will show on next manual refresh
         } else {
           console.log('No data or failed:', data)
         }
