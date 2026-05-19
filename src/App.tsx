@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Fuel, Video, Camera, Receipt, Gauge, 
@@ -20,6 +20,7 @@ export default function App() {
   const [lang, setLang] = useState<Language>('en')
   const [session, setSession] = useState<any>(null)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
+  const [syncKey, setSyncKey] = useState(0)
 
   useEffect(() => {
     const loadDataFromBackend = async () => {
@@ -62,6 +63,7 @@ export default function App() {
           if (data.owners) {
             storage.saveOwners(data.owners)
           }
+          setSyncKey(k => k + 1)
         } else {
           console.log('No data or failed:', data)
         }
@@ -159,8 +161,8 @@ export default function App() {
           {view === 'admin-login' && <AdminLogin lang={lang} setView={setView} setSession={setSession} />}
           {view === 'driver-dash' && <DriverDashboard lang={lang} session={session} setView={setView} />}
           {view === 'wizard' && <FillWizard lang={lang} session={session} setView={setView} />}
-          {view === 'owner-dash' && <OwnerDashboard lang={lang} session={session} />}
-          {view === 'admin-dash' && <AdminDashboard lang={lang} />}
+          {view === 'owner-dash' && <OwnerDashboard lang={lang} session={session} syncKey={syncKey} />}
+          {view === 'admin-dash' && <AdminDashboard lang={lang} syncKey={syncKey} />}
         </AnimatePresence>
       </main>
     </div>
@@ -1219,16 +1221,16 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
   )
 }
 
-function OwnerDashboard({ lang, session }: { lang: Language; session: any }) {
+function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: any; syncKey: number }) {
   const [tab, setTab] = useState<'home' | 'fills' | 'vehicles' | 'drivers' | 'media' | 'alerts'>('home')
   const [showAddDriver, setShowAddDriver] = useState(false)
   const [showAddVehicle, setShowAddVehicle] = useState(false)
   const [lightboxMedia, setLightboxMedia] = useState<{ url: string; label: string } | null>(null)
 
-  const fills = storage.getFills()
-  const drivers = storage.getDrivers()
-  const vehicles = storage.getVehicles()
-  const alerts = storage.getAlerts().filter(a => !a.resolved)
+  const fills = useMemo(() => storage.getFills(), [syncKey])
+  const drivers = useMemo(() => storage.getDrivers(), [syncKey])
+  const vehicles = useMemo(() => storage.getVehicles(), [syncKey])
+  const alerts = useMemo(() => storage.getAlerts().filter(a => !a.resolved), [syncKey])
 
   const todayFills = fills.filter(f => new Date(f.time).toDateString() === new Date().toDateString())
   const pendingVerifications = fills.filter(f => !f.verified)
@@ -1711,12 +1713,12 @@ function AddVehicleModal({ lang, ownerId, onClose }: { lang: Language; ownerId: 
   )
 }
 
-function AdminDashboard({ lang }: { lang: Language }) {
-  const owners = storage.getOwners()
-  const drivers = storage.getDrivers()
-  const vehicles = storage.getVehicles()
-  const fills = storage.getFills()
-  const alerts = storage.getAlerts()
+function AdminDashboard({ lang, syncKey }: { lang: Language; syncKey: number }) {
+  const owners = useMemo(() => storage.getOwners(), [syncKey])
+  const drivers = useMemo(() => storage.getDrivers(), [syncKey])
+  const vehicles = useMemo(() => storage.getVehicles(), [syncKey])
+  const fills = useMemo(() => storage.getFills(), [syncKey])
+  const alerts = useMemo(() => storage.getAlerts(), [syncKey])
 
   return (
     <div className="p-5">
