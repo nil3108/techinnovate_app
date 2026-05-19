@@ -150,7 +150,7 @@ function doPost(e) {
       
       return json({
         success: true,
-        fileUrl: 'https://drive.google.com/uc?id=' + file.getId(),
+        fileUrl: 'https://drive.google.com/uc?export=download&id=' + file.getId(),
         fileId: file.getId()
       });
     }

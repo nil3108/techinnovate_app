@@ -58,7 +58,22 @@ export default function App() {
             storage.saveVehicles(data.vehicles)
           }
           if (data.fills) {
-            storage.saveFills(data.fills)
+            console.log('Fill keys:', Object.keys(data.fills[0] || {}))
+            console.log('First fill raw:', data.fills[0])
+            // Handle sheet where first column header might be ' ' instead of 'id'
+            const cleanFills = data.fills.map((f: any) => {
+              const id = f.id || f[' '] || 'fill_' + Date.now() + '_' + Math.random().toString(36).slice(2,8)
+              return {
+                ...f,
+                id,
+                videoUrl: f.videoUrl && !f.videoUrl.startsWith('data:') ? f.videoUrl : '',
+                pumpPhotoUrl: f.pumpPhotoUrl && !f.pumpPhotoUrl.startsWith('data:') ? f.pumpPhotoUrl : '',
+                receiptPhotoUrl: f.receiptPhotoUrl && !f.receiptPhotoUrl.startsWith('data:') ? f.receiptPhotoUrl : '',
+                odoPhotoUrl: f.odoPhotoUrl && !f.odoPhotoUrl.startsWith('data:') ? f.odoPhotoUrl : '',
+              }
+            })
+            storage.saveFills(cleanFills)
+            console.log('Cleaned fills sample:', cleanFills.slice(0,2).map((f: any) => ({id: f.id, video: f.videoUrl?.substring(0,60)})))
           }
           if (data.owners) {
             storage.saveOwners(data.owners)
@@ -161,7 +176,7 @@ export default function App() {
           {view === 'admin-login' && <AdminLogin lang={lang} setView={setView} setSession={setSession} />}
           {view === 'driver-dash' && <DriverDashboard lang={lang} session={session} setView={setView} />}
           {view === 'wizard' && <FillWizard lang={lang} session={session} setView={setView} />}
-          {view === 'owner-dash' && <OwnerDashboard lang={lang} session={session} syncKey={syncKey} />}
+          {view === 'owner-dash' && <OwnerDashboard lang={lang} session={session} syncKey={syncKey} key={'od'+syncKey} />}
           {view === 'admin-dash' && <AdminDashboard lang={lang} syncKey={syncKey} />}
         </AnimatePresence>
       </main>
@@ -1227,10 +1242,10 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
   const [showAddVehicle, setShowAddVehicle] = useState(false)
   const [lightboxMedia, setLightboxMedia] = useState<{ url: string; label: string } | null>(null)
 
-  const fills = useMemo(() => storage.getFills(), [syncKey])
-  const drivers = useMemo(() => storage.getDrivers(), [syncKey])
-  const vehicles = useMemo(() => storage.getVehicles(), [syncKey])
-  const alerts = useMemo(() => storage.getAlerts().filter(a => !a.resolved), [syncKey])
+  const fills = storage.getFills()
+  const drivers = storage.getDrivers()
+  const vehicles = storage.getVehicles()
+  const alerts = storage.getAlerts().filter(a => !a.resolved)
 
   const todayFills = fills.filter(f => new Date(f.time).toDateString() === new Date().toDateString())
   const pendingVerifications = fills.filter(f => !f.verified)
@@ -1488,29 +1503,27 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                 
                 <div className="grid grid-cols-2 gap-2 mb-3">
                   {mediaItems.map((m, i) => (
-                    <div key={i} className="aspect-video rounded-lg bg-[#F5F6F8] border border-[#E2E6EB] overflow-hidden relative group cursor-pointer"
-                      onClick={() => m.url && m.url !== '[DRIVE]' && setLightboxMedia({ url: m.url, label: m.label })}
+                    <a key={i} href={m.url && m.url !== '[DRIVE]' ? m.url : '#'} target="_blank" rel="noopener noreferrer"
+                      className={`block aspect-video rounded-lg border overflow-hidden relative group ${m.url && m.url !== '[DRIVE]' ? 'cursor-pointer bg-[#1F2937] border-[#374151]' : 'cursor-default bg-[#F5F6F8] border-[#E2E6EB]'}`}
+                      onClick={e => { if (!m.url || m.url === '[DRIVE]') e.preventDefault() }}
                     >
                       {m.url && m.url !== '[DRIVE]' ? (
                         m.isVideo ? (
-                          <video src={m.url} className="w-full h-full object-cover" />
+                          <div className="w-full h-full flex items-center justify-center">
+                            <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center">
+                              <Play className="w-7 h-7 text-white ml-0.5" />
+                            </div>
+                          </div>
                         ) : (
                           <img src={m.url} alt={m.label} className="w-full h-full object-cover" />
                         )
                       ) : (
-                        <div className="w-full h-full flex flex-col items-center justify-center gap-1">
+                        <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-[#F5F6F8]">
                           <Camera className="w-5 h-5 text-[#D1D5DB]" />
                           <span className="text-[10px] text-[#D1D5DB]">{m.label}</span>
                         </div>
                       )}
-                      {m.url && m.url !== '[DRIVE]' && (
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-                          <span className="text-white text-[11px] font-medium opacity-0 group-hover:opacity-100 transition-opacity">
-                            {m.isVideo ? '▶ Play' : '🔍 View'}
-                          </span>
-                        </div>
-                      )}
-                    </div>
+                    </a>
                   ))}
                 </div>
 
@@ -1585,7 +1598,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
               Close ✕
             </button>
             {lightboxMedia.url.match(/\.(mp4|webm|ogg|mov)$/i) || lightboxMedia.label === 'Video' ? (
-              <video src={lightboxMedia.url} controls autoPlay className="max-w-[90vw] max-h-[85vh] rounded-xl" />
+              <video src={lightboxMedia.url.replace('uc?id=', 'uc?export=download&id=')} controls autoPlay className="max-w-[90vw] max-h-[85vh] rounded-xl" />
             ) : (
               <img src={lightboxMedia.url} alt={lightboxMedia.label} className="max-w-[90vw] max-h-[85vh] rounded-xl object-contain" />
             )}
