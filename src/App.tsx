@@ -57,6 +57,9 @@ export default function App() {
           if (data.fills) {
             storage.saveFills(data.fills)
           }
+          if (data.owners) {
+            storage.saveOwners(data.owners)
+          }
         } else {
           console.log('No data or failed:', data)
         }
