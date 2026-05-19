@@ -1207,10 +1207,10 @@ function OwnerDashboard({ lang, session }: { lang: Language; session: any }) {
   const [showAddDriver, setShowAddDriver] = useState(false)
   const [showAddVehicle, setShowAddVehicle] = useState(false)
 
-  const fills = storage.getFills().filter(f => f.ownerId === session.ownerId)
-  const drivers = storage.getDrivers().filter(d => d.ownerId === session.ownerId)
-  const vehicles = storage.getVehicles().filter(v => v.ownerId === session.ownerId)
-  const alerts = storage.getAlerts().filter(a => a.ownerId === session.ownerId && !a.resolved)
+  const fills = storage.getFills()
+  const drivers = storage.getDrivers()
+  const vehicles = storage.getVehicles()
+  const alerts = storage.getAlerts().filter(a => !a.resolved)
 
   const todayFills = fills.filter(f => new Date(f.time).toDateString() === new Date().toDateString())
   const pendingVerifications = fills.filter(f => !f.verified)
