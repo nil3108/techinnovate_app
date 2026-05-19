@@ -23,6 +23,7 @@ export default function App() {
 
   useEffect(() => {
     const loadDataFromBackend = async () => {
+      console.log('loadDataFromBackend: online=', navigator.onLine, 'synced=', window.sessionStorage.getItem('synced'))
       if (!navigator.onLine) return
       
       // Check for clear parameter
@@ -32,6 +33,7 @@ export default function App() {
         localStorage.removeItem('cng_vehicles')
         localStorage.removeItem('cng_fills')
         localStorage.removeItem('cng_alerts')
+        window.sessionStorage.removeItem('synced')
         window.location.href = window.location.pathname
         return
       }
