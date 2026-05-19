@@ -125,10 +125,10 @@ function WelcomeView({ lang, setView }: { lang: Language; setView: (v: View) => 
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
-      className="p-6 pt-12"
+      className="p-6 pt-8"
     >
-      <div className="text-center mb-12">
-        <img src="logo.jpg" alt="Techinnovate" className="w-full max-w-[280px] h-40 mx-auto mb-4 rounded-2xl object-contain shadow-xl" />
+      <div className="text-center mb-10">
+        <img src="logo.jpg" alt="Techinnovate" className="w-48 mx-auto mb-6" />
         <p className="text-[#6B7280] text-[15px]">Fleet CNG Monitoring System</p>
       </div>
 
@@ -144,8 +144,8 @@ function WelcomeView({ lang, setView }: { lang: Language; setView: (v: View) => 
             onClick={() => setView(`${role}-login` as View)}
             className="w-full"
           >
-            <div className="flex items-center gap-4 p-5 rounded-2xl bg-white border border-[#E2E6EB] shadow-sm hover:shadow-md hover:border-[#E10600]/30 transition-all">
-              <div className={`w-12 h-12 rounded-xl ${color} flex items-center justify-center shadow-lg`}>
+            <div className="flex items-center gap-4 p-5 rounded-2xl bg-white hover:bg-[#F5F6F8] transition-all">
+              <div className={`w-12 h-12 rounded-xl ${color} flex items-center justify-center`}>
                 <Icon className="w-6 h-6 text-white" />
               </div>
               <div className="flex-1 text-left">
@@ -162,16 +162,10 @@ function WelcomeView({ lang, setView }: { lang: Language; setView: (v: View) => 
         ))}
       </div>
 
-      <div className="mt-12 p-4 rounded-2xl bg-white border border-[#E2E6EB]">
-        <div className="flex items-start gap-3">
-          <Globe className="w-5 h-5 text-[#9CA3AF] mt-0.5" />
-          <div>
-            <p className="text-[13px] font-medium mb-1 text-[#111827]">Demo Accounts</p>
-            <p className="text-[12px] text-[#6B7280] leading-relaxed">
-              Driver: 1234 or 5678 • Owner: owner@demo.com / demo123 • Admin: admin@cng.com / admin123
-            </p>
-          </div>
-        </div>
+      <div className="mt-12 p-4 rounded-2xl bg-gray-50">
+        <p className="text-[12px] text-[#6B7280] text-center">
+          Demo: Driver 1234/5678 | Owner: owner@demo.com/demo123 | Admin: admin@cng.com/admin123
+        </p>
       </div>
     </motion.div>
   )
