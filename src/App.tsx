@@ -26,20 +26,25 @@ export default function App() {
       if (!navigator.onLine) return
       
       try {
-        const fills = storage.getFills()
-        if (fills.length === 0) {
-          const data = await googleSync.fetchAllData()
-          if (data?.fills?.length > 0) {
-            storage.saveFills(data.fills)
-            const drivers = storage.getDrivers()
-            if (drivers.length === 0 && data.drivers?.length > 0) {
-              storage.saveDrivers(data.drivers)
-            }
-            const vehicles = storage.getVehicles()
-            if (vehicles.length === 0 && data.vehicles?.length > 0) {
-              storage.saveVehicles(data.vehicles)
-            }
+        const data = await googleSync.fetchAllData()
+        if (data?.success) {
+          if (data.drivers?.length > 0) {
+            storage.saveDrivers(data.drivers)
           }
+          if (data.vehicles?.length > 0) {
+            storage.saveVehicles(data.vehicles)
+          }
+          if (data.fills?.length > 0) {
+            const localFills = storage.getFills()
+            const mergedFills = [...localFills]
+            data.fills.forEach((f: any) => {
+              if (!mergedFills.find(lf => lf.id === f.id)) {
+                mergedFills.push(f)
+              }
+            })
+            storage.saveFills(mergedFills)
+          }
+          window.location.reload()
         }
       } catch (e) {
         console.log('Backend sync skipped:', e)
