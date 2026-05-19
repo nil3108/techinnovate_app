@@ -1426,18 +1426,29 @@ function AddDriverModal({ lang, ownerId, onClose }: { lang: Language; ownerId: s
   const vehicles = storage.getVehicles().filter(v => v.ownerId === ownerId)
   const [vehicleId, setVehicleId] = useState('')
 
-  const handleSave = () => {
-    const drivers = storage.getDrivers()
-    drivers.push({
+  const handleSave = async () => {
+    const newDriver = {
       id: 'drv' + Date.now(),
       name,
       code,
       assignedVehicleId: vehicleId || null,
       ownerId,
-      status: 'active',
+      status: 'active' as const,
       createdAt: new Date().toISOString(),
-    })
+    }
+    
+    const drivers = storage.getDrivers()
+    drivers.push(newDriver)
     storage.saveDrivers(drivers)
+    
+    await googleSync.addDriver({
+      id: newDriver.id,
+      name: newDriver.name,
+      code: newDriver.code,
+      assignedVehicleId: newDriver.assignedVehicleId,
+      ownerId: newDriver.ownerId,
+    })
+    
     onClose()
     window.location.reload()
   }
@@ -1469,9 +1480,8 @@ function AddVehicleModal({ lang, ownerId, onClose }: { lang: Language; ownerId: 
   const [odo, setOdo] = useState('')
   const [capacity, setCapacity] = useState('60')
 
-  const handleSave = () => {
-    const vehicles = storage.getVehicles()
-    vehicles.push({
+  const handleSave = async () => {
+    const newVehicle = {
       id: 'veh' + Date.now(),
       plate,
       model,
@@ -1479,9 +1489,23 @@ function AddVehicleModal({ lang, ownerId, onClose }: { lang: Language; ownerId: 
       currentOdo: parseInt(odo),
       capacity: parseInt(capacity),
       ownerId,
-      status: 'active',
-    })
+      status: 'active' as const,
+    }
+    
+    const vehicles = storage.getVehicles()
+    vehicles.push(newVehicle)
     storage.saveVehicles(vehicles)
+    
+    await googleSync.addVehicle({
+      id: newVehicle.id,
+      plate: newVehicle.plate,
+      model: newVehicle.model,
+      initialOdo: newVehicle.initialOdo,
+      currentOdo: newVehicle.currentOdo,
+      capacity: newVehicle.capacity,
+      ownerId: newVehicle.ownerId,
+    })
+    
     onClose()
     window.location.reload()
   }
