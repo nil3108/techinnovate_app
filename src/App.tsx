@@ -72,10 +72,6 @@ export default function App() {
         <div className="max-w-[480px] mx-auto px-4 h-[64px] flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img src="logo.jpg" alt="Techinnovate" className="w-12 h-10 rounded-lg object-contain bg-white shadow-md" />
-            <div>
-              <h1 className="font-bold text-[16px] leading-none tracking-tight text-[#111827]">TECHINNOVATE</h1>
-              <p className="text-[11px] text-[#6B7280] font-medium -mt-0.5">MOBILITY</p>
-            </div>
           </div>
           
           <div className="flex items-center gap-2">
@@ -132,8 +128,7 @@ function WelcomeView({ lang, setView }: { lang: Language; setView: (v: View) => 
       className="p-6 pt-12"
     >
       <div className="text-center mb-12">
-        <img src="logo.jpg" alt="Techinnovate" className="w-full max-w-[280px] h-40 mx-auto mb-6 rounded-2xl object-contain shadow-xl" />
-        <h1 className="text-[32px] font-bold tracking-tight mb-2 text-[#111827]">Techinnovate Mobility</h1>
+        <img src="logo.jpg" alt="Techinnovate" className="w-full max-w-[280px] h-40 mx-auto mb-4 rounded-2xl object-contain shadow-xl" />
         <p className="text-[#6B7280] text-[15px]">Fleet CNG Monitoring System</p>
       </div>
 
