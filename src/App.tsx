@@ -775,9 +775,9 @@ function CameraModal({
                 <Check className="w-5 h-5" />
                 {t('ok', lang)}
               </button>
-            </div>
           </div>
-        )}
+        </div>
+      )}
       </div>
     </div>
   )
@@ -803,7 +803,10 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
   console.log('Driver:', driver, 'Vehicles:', vehicles)
 
   useEffect(() => {
-    // Don't auto-select - let driver choose
+    if (driver?.assignedVehicleId) {
+      const v = vehicles.find(v => v.id === driver.assignedVehicleId)
+      if (v) setForm(f => ({...f, vehicleId: v.id}))
+    }
   }, [])
 
   const handleCapture = (type: string, capture: CameraCapture) => {
@@ -875,7 +878,10 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
         fuelDropPercent,
         ownerId: session.ownerId,
         verified: false,
+        pendingVehicleApproval: driver?.assignedVehicleId && form.vehicleId !== driver.assignedVehicleId ? true : false,
       }
+
+      const pendingApproval = fill.pendingVehicleApproval
 
       // Save to localStorage immediately (instant)
       const existingFills = storage.getFills()
@@ -909,8 +915,10 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
       }
       const allFills = storage.getFills().map(f => f.id === fillId ? updatedFill : f)
       storage.saveFills(allFills)
-      // Sync to Sheets in background (direct call, avoid saveFill's localStorage duplicate)
-      const sheetPayload = {
+
+      if (!pendingApproval) {
+        // Sync to Sheets in background (direct call, avoid saveFill's localStorage duplicate)
+        const sheetPayload = {
         action: 'addFill',
         id: updatedFill.id,
         vehicleId: updatedFill.vehicleId,
@@ -941,6 +949,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
         headers: {'Content-Type': 'text/plain;charset=utf-8'},
         body: JSON.stringify(sheetPayload),
       }).then(r => r.text()).then(t => console.log('Sheet sync response:', t.substring(0,100))).catch(e => console.error('Sheet sync error:', e))
+      }
 
       // Create alerts
       if (mismatch || fuelDropPercent > 20) {
@@ -967,6 +976,21 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
             resolved: false,
           })
         }
+        storage.saveAlerts(alerts)
+      }
+
+      // Vehicle override alert
+      if (pendingApproval) {
+        const alerts = storage.getAlerts()
+        alerts.push({
+          id: 'alert' + Date.now() + 2,
+          time: new Date().toISOString(),
+          event: `Vehicle override: ${driver?.name || session.name} used ${vehicle?.plate || 'other'} instead of assigned vehicle`,
+          user: session.name,
+          type: 'vehicle_override',
+          ownerId: session.ownerId,
+          resolved: false,
+        })
         storage.saveAlerts(alerts)
       }
 
@@ -1111,6 +1135,11 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
                       <option value="">Select vehicle</option>
                       {vehicles.map(v => <option key={v.id} value={v.id}>{v.plate}</option>)}
                     </select>
+                    {driver?.assignedVehicleId && form.vehicleId && form.vehicleId !== driver.assignedVehicleId && (
+                      <p className="text-[11px] text-[#E10600] mt-1 flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3" /> Not your assigned vehicle — owner approval required
+                      </p>
+                    )}
                   </div>
                   
                   <div className="grid grid-cols-2 gap-3">
@@ -1304,6 +1333,8 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
   const [showAddVehicle, setShowAddVehicle] = useState(false)
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null)
   const [editCode, setEditCode] = useState('')
+  const [editingDriverVehicle, setEditingDriverVehicle] = useState<Driver | null>(null)
+  const [editVehicleId, setEditVehicleId] = useState('')
   const [lightboxMedia, setLightboxMedia] = useState<{ url: string; label: string } | null>(null)
 
   const fills = storage.getFills()
@@ -1404,7 +1435,10 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                         Code: {d.code}
                         <button onClick={() => { setEditingDriver(d); setEditCode(d.code) }} className="ml-1.5 p-0.5 hover:bg-[#F5F6F8] rounded inline-flex align-middle">
                           <svg className="w-3 h-3 text-[#9CA3AF]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                        </button> • {v?.plate || 'No vehicle'}</p>
+                        </button> • {v?.plate || 'No vehicle'}
+                        <button onClick={() => { setEditingDriverVehicle(d); setEditVehicleId(d.assignedVehicleId || '') }} className="ml-1 p-0.5 hover:bg-[#F5F6F8] rounded inline-flex align-middle">
+                          <svg className="w-3 h-3 text-[#9CA3AF]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                        </button></p>
                     </div>
                     <button onClick={async () => {
                       storage.saveDrivers(drivers.filter(x => x.id !== d.id))
@@ -1478,6 +1512,53 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                   >
                     {fill.verified ? 'Verified' : 'Verify'}
                   </button>
+                  {fill.pendingVehicleApproval && (
+                    <button
+                      onClick={() => {
+                        const updated = fills.map(f => f.id === fill.id ? { ...f, pendingVehicleApproval: false } : f)
+                        storage.saveFills(updated)
+                        const approved = updated.find(f => f.id === fill.id)
+                        if (approved) {
+                          const sheetPayload = {
+                            action: 'addFill',
+                            id: approved.id,
+                            vehicleId: approved.vehicleId,
+                            driverId: approved.driverId,
+                            time: approved.time,
+                            station: approved.station,
+                            kgs: approved.kgs,
+                            rate: approved.rate,
+                            total: approved.total,
+                            videoUrl: approved.videoUrl,
+                            pumpPhotoUrl: approved.pumpPhotoUrl,
+                            receiptPhotoUrl: approved.receiptPhotoUrl,
+                            odoPhotoUrl: approved.odoPhotoUrl,
+                            pumpGPS: approved.pumpGPS ? `${approved.pumpGPS.lat},${approved.pumpGPS.lng}` : '',
+                            receiptGPS: approved.receiptGPS ? `${approved.receiptGPS.lat},${approved.receiptGPS.lng}` : '',
+                            odoGPS: approved.odoGPS ? `${approved.odoGPS.lat},${approved.odoGPS.lng}` : '',
+                            odoReading: approved.odoReading,
+                            distanceDiff: approved.distanceDiff,
+                            mismatch: approved.mismatch,
+                            fuelDropPercent: approved.fuelDropPercent,
+                            ownerId: approved.ownerId,
+                            verified: approved.verified,
+                          }
+                          fetch(APPS_SCRIPT_URL, {
+                            method: 'POST',
+                            mode: 'cors',
+                            redirect: 'follow',
+                            headers: {'Content-Type': 'text/plain;charset=utf-8'},
+                            body: JSON.stringify(sheetPayload),
+                          }).then(() => { window.location.reload() }).catch(() => { window.location.reload() })
+                        } else {
+                          window.location.reload()
+                        }
+                      }}
+                      className="px-3 py-1.5 rounded-lg text-[12px] font-medium whitespace-nowrap bg-[#E10600] text-white hover:bg-[#B80500] transition-colors"
+                    >
+                      Approve
+                    </button>
+                  )}
                 </div>
               </div>
               <div className={`px-2.5 py-1 rounded-full text-[11px] font-medium inline-flex items-center gap-1 ${
@@ -1486,6 +1567,11 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                   <MapPin className="w-3 h-3" />
                   {fill.mismatch ? `${Math.round(fill.distanceDiff)}m off` : '\u003C500m'}
                 </div>
+              {fill.pendingVehicleApproval && (
+                <div className="px-2.5 py-1 rounded-full text-[11px] font-medium inline-flex items-center gap-1 bg-[#FEF3C7] text-[#92400E] ml-1">
+                  Pending Approval
+                </div>
+              )}
               </div>
             )
           })}
@@ -1685,25 +1771,32 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
               <p className="text-[#6B7280]">No active alerts</p>
             </div>
           ) : alerts.map(alert => (
-            <div key={alert.id} className="p-4 rounded-2xl bg-[#FEE2E2] border border-[#FECACA]">
+            <div key={alert.id} className={`p-4 rounded-2xl border ${alert.type === 'vehicle_override' ? 'bg-[#FEF3C7] border-[#FDE68A]' : 'bg-[#FEE2E2] border-[#FECACA]'}`}>
               <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-[#FECACA] flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <AlertTriangle className="w-4 h-4 text-[#991B1B]" />
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${alert.type === 'vehicle_override' ? 'bg-[#FDE68A]' : 'bg-[#FECACA]'}`}>
+                  <AlertTriangle className={`w-4 h-4 ${alert.type === 'vehicle_override' ? 'text-[#92400E]' : 'text-[#991B1B]'}`} />
                 </div>
                 <div className="flex-1">
                   <p className="font-medium text-[14px] mb-1 text-[#111827]">{alert.event}</p>
                   <p className="text-[12px] text-[#6B7280]">{alert.user} • {new Date(alert.time).toLocaleString()}</p>
                 </div>
-                <button
-                  onClick={() => {
-                    const allAlerts = storage.getAlerts()
-                    storage.saveAlerts(allAlerts.map(a => a.id === alert.id ? { ...a, resolved: true } : a))
-                    window.location.reload()
-                  }}
-                  className="text-[11px] px-2.5 py-1 rounded-lg bg-white hover:bg-[#F5F6F8] transition-colors text-[#6B7280]"
-                >
-                  Resolve
-                </button>
+                <div className="flex gap-1">
+                  {alert.type === 'vehicle_override' && (
+                    <button onClick={() => setTab('fills')} className="text-[11px] px-2.5 py-1 rounded-lg bg-white hover:bg-[#F5F6F8] transition-colors text-[#E10600]">
+                      View in Fills
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      const allAlerts = storage.getAlerts()
+                      storage.saveAlerts(allAlerts.map(a => a.id === alert.id ? { ...a, resolved: true } : a))
+                      window.location.reload()
+                    }}
+                    className="text-[11px] px-2.5 py-1 rounded-lg bg-white hover:bg-[#F5F6F8] transition-colors text-[#6B7280]"
+                  >
+                    Resolve
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -1752,6 +1845,31 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                 const updated = drivers.map(d => d.id === editingDriver.id ? { ...d, code: editCode.trim() } : d)
                 storage.saveDrivers(updated)
                 await googleSync.updateDriver({ id: editingDriver.id, code: editCode.trim() })
+                window.location.reload()
+              }} className="px-4 py-2 rounded-xl bg-[#E10600] text-white text-[13px] font-medium">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {editingDriverVehicle && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur flex items-center justify-center p-4" onClick={() => setEditingDriverVehicle(null)}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-[16px] font-semibold text-[#111827] mb-1">Change Assigned Vehicle</h3>
+            <p className="text-[13px] text-[#6B7280] mb-4">{editingDriverVehicle.name}</p>
+            <select
+              value={editVehicleId}
+              onChange={e => setEditVehicleId(e.target.value)}
+              className="w-full h-[52px] px-4 bg-white border border-[#E2E6EB] rounded-xl text-[15px] focus:border-[#E10600] focus:outline-none focus:ring-2 focus:ring-[#E10600]/20 mb-4"
+            >
+              <option value="">No vehicle</option>
+              {vehicles.map(v => <option key={v.id} value={v.id}>{v.plate}</option>)}
+            </select>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setEditingDriverVehicle(null)} className="px-4 py-2 rounded-xl bg-[#F5F6F8] text-[#6B7280] text-[13px] font-medium">Cancel</button>
+              <button onClick={async () => {
+                const updated = drivers.map(d => d.id === editingDriverVehicle.id ? { ...d, assignedVehicleId: editVehicleId || null } : d)
+                storage.saveDrivers(updated)
+                await googleSync.updateDriver({ id: editingDriverVehicle.id, code: undefined, assignedVehicleId: editVehicleId || null })
                 window.location.reload()
               }} className="px-4 py-2 rounded-xl bg-[#E10600] text-white text-[13px] font-medium">Save</button>
             </div>

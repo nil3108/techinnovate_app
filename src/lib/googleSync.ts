@@ -209,7 +209,7 @@ export const googleSync = {
       await fetch(APPS_SCRIPT_URL, {
         method: 'POST',
         mode: 'no-cors',
-        body: JSON.stringify({ action: 'updateDriver', id: driver.id, code: driver.code }),
+        body: JSON.stringify({ action: 'updateDriver', id: driver.id, code: driver.code, assignedVehicleId: driver.assignedVehicleId }),
       })
       return true
     } catch { return false }

@@ -56,6 +56,7 @@ export interface Fill {
   fuelDropPercent: number
   ownerId: string
   verified: boolean
+  pendingVehicleApproval?: boolean
 }
 
 export interface Alert {
@@ -63,7 +64,7 @@ export interface Alert {
   time: string
   event: string
   user: string
-  type: 'location_mismatch' | 'fuel_drop' | 'other'
+  type: 'location_mismatch' | 'fuel_drop' | 'vehicle_override' | 'other'
   ownerId: string
   resolved: boolean
 }
