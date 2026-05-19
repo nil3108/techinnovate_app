@@ -759,15 +759,11 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
   const drivers = storage.getDrivers()
   const driver = drivers.find(d => d.id === session.userId)
   
-  console.log('Driver:', driver, 'Vehicles:', vehicles, 'Assigned:', driver?.assignedVehicleId)
+  console.log('Driver:', driver, 'Vehicles:', vehicles)
 
   useEffect(() => {
-    if (driver?.assignedVehicleId) {
-      setForm(f => ({ ...f, vehicleId: driver.assignedVehicleId! }))
-    } else if (vehicles.length > 0) {
-      setForm(f => ({ ...f, vehicleId: vehicles[0].id }))
-    }
-  }, [driver, vehicles])
+    // Don't auto-select - let driver choose
+  }, [])
 
   const handleCapture = (type: string, capture: CameraCapture) => {
     setCaptures(prev => ({ ...prev, [type]: capture }))
