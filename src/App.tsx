@@ -179,33 +179,39 @@ function WelcomeView({ lang, setView }: { lang: Language; setView: (v: View) => 
       </div>
 
       <div className="space-y-3">
-        {[
-          { role: 'driver' as Role, icon: Gauge, color: 'bg-[#10B981]', desc: 'Record fuel fills' },
-          { role: 'owner' as Role, icon: BarChart3, color: 'bg-[#3B82F6]', desc: 'Manage fleet' },
-          { role: 'admin' as Role, icon: Shield, color: 'bg-[#8B5CF6]', desc: 'System control' },
-        ].map(({ role, icon: Icon, color, desc }) => (
-          <motion.button
-            key={role}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => setView(`${role}-login` as View)}
-            className="w-full"
-          >
-            <div className="flex items-center gap-4 p-5 rounded-2xl bg-white hover:bg-[#F5F6F8] transition-all">
-              <div className={`w-12 h-12 rounded-xl ${color} flex items-center justify-center`}>
-                <Icon className="w-6 h-6 text-white" />
-              </div>
-              <div className="flex-1 text-left">
-                <div className="font-semibold text-[17px] text-[#111827]">{t(role, lang)}</div>
-                <div className="text-[13px] text-[#6B7280]">{desc}</div>
-              </div>
-              <div className="w-8 h-8 rounded-full bg-[#F5F6F8] flex items-center justify-center group-hover:bg-[#E2E6EB] transition-colors">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                </svg>
-              </div>
+        <span className="block text-[13px] font-medium text-[#6B7280] tracking-wide uppercase text-center">
+          {lang === 'hi' ? 'ड्राइवर लॉगिन' : lang === 'gu' ? 'ડ્રાઇવર લૉગિન' : 'Driver Login'}
+        </span>
+        <motion.button
+          whileTap={{ scale: 0.97 }}
+          onClick={() => setView('driver-login')}
+          className="w-full"
+        >
+          <div className="flex items-center gap-4 p-6 rounded-2xl bg-[#E10600] text-white shadow-lg shadow-[#E10600]/25 transition-all hover:brightness-110">
+            <div className="w-14 h-14 rounded-xl bg-white/20 flex items-center justify-center">
+              <Gauge className="w-7 h-7 text-white" />
             </div>
-          </motion.button>
-        ))}
+            <div className="flex-1 text-left">
+              <div className="font-bold text-[19px]">{lang === 'hi' ? 'ड्राइवर' : lang === 'gu' ? 'ડ્રાઇવર' : 'Driver'}</div>
+              <div className="text-[13px] text-white/80">Record fuel fills</div>
+            </div>
+            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+            </div>
+          </div>
+        </motion.button>
+      </div>
+
+      <div className="mt-8 text-center space-y-1">
+        <button onClick={() => setView('owner-login')} className="text-[#6B7280] hover:text-[#E10600] text-[14px] underline underline-offset-2 transition-colors">
+          {lang === 'hi' ? 'मालिक लॉगिन' : lang === 'gu' ? 'માલિક લૉગિન' : 'Owner Login'}
+        </button>
+        <span className="text-[#D1D5DB] mx-2 text-[13px]">|</span>
+        <button onClick={() => setView('admin-login')} className="text-[#6B7280] hover:text-[#E10600] text-[14px] underline underline-offset-2 transition-colors">
+          {lang === 'hi' ? 'एडमिन लॉगिन' : lang === 'gu' ? 'એડમિન લૉગિન' : 'Admin Login'}
+        </button>
       </div>
 
       <div className="mt-12 p-4 rounded-2xl bg-gray-50">
