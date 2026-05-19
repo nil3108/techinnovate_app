@@ -775,7 +775,11 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
 
   const handleSubmit = async () => {
     try {
-      const vehicle = vehicles.find(v => v.id === form.vehicleId)!
+      const vehicle = vehicles.find(v => v.id === form.vehicleId)
+      if (!vehicle) {
+        alert('Please select a vehicle')
+        return
+      }
       
       // Calculate distance between GPS points
       let distanceDiff = 0
@@ -792,7 +796,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
       const fills = storage.getFills().filter(f => f.vehicleId === form.vehicleId)
       const lastFill = fills.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())[0]
       let fuelDropPercent = 0
-      if (lastFill) {
+      if (lastFill && vehicle) {
         const expectedKgs = vehicle.capacity * 0.8
         fuelDropPercent = ((expectedKgs - parseFloat(form.kgs)) / expectedKgs) * 100
       }
