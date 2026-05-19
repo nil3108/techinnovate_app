@@ -758,12 +758,16 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
   const vehicles = storage.getVehicles()
   const drivers = storage.getDrivers()
   const driver = drivers.find(d => d.id === session.userId)
+  
+  console.log('Driver:', driver, 'Vehicles:', vehicles, 'Assigned:', driver?.assignedVehicleId)
 
   useEffect(() => {
     if (driver?.assignedVehicleId) {
       setForm(f => ({ ...f, vehicleId: driver.assignedVehicleId! }))
+    } else if (vehicles.length > 0) {
+      setForm(f => ({ ...f, vehicleId: vehicles[0].id }))
     }
-  }, [driver])
+  }, [driver, vehicles])
 
   const handleCapture = (type: string, capture: CameraCapture) => {
     setCaptures(prev => ({ ...prev, [type]: capture }))
@@ -775,11 +779,16 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
 
   const handleSubmit = async () => {
     try {
-      const vehicle = vehicles.find(v => v.id === form.vehicleId)
+      const vehicle = vehicles.find(v => v.id === form.vehicleId || v.id === String(form.vehicleId))
       if (!vehicle) {
-        alert('Please select a vehicle')
-        return
+        console.log('Vehicle not found, form.vehicleId:', form.vehicleId, 'vehicles:', vehicles)
+        if (!form.vehicleId) {
+          alert('Please select a vehicle')
+          return
+        }
       }
+      
+      if (!vehicle) return
       
       // Calculate distance between GPS points
       let distanceDiff = 0
