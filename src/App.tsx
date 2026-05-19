@@ -22,6 +22,30 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(navigator.onLine)
 
   useEffect(() => {
+    const loadDataFromBackend = async () => {
+      if (!navigator.onLine) return
+      
+      try {
+        const fills = storage.getFills()
+        if (fills.length === 0) {
+          const data = await googleSync.fetchAllData()
+          if (data?.fills?.length > 0) {
+            storage.saveFills(data.fills)
+            const drivers = storage.getDrivers()
+            if (drivers.length === 0 && data.drivers?.length > 0) {
+              storage.saveDrivers(data.drivers)
+            }
+            const vehicles = storage.getVehicles()
+            if (vehicles.length === 0 && data.vehicles?.length > 0) {
+              storage.saveVehicles(data.vehicles)
+            }
+          }
+        }
+      } catch (e) {
+        console.log('Backend sync skipped:', e)
+      }
+    }
+    
     const savedLang = storage.getLanguage() as Language
     setLang(savedLang)
     
@@ -32,6 +56,8 @@ export default function App() {
       else if (savedSession.role === 'owner') setView('owner-dash')
       else if (savedSession.role === 'admin') setView('admin-dash')
     }
+
+    loadDataFromBackend()
 
     const handleOnline = () => setIsOnline(true)
     const handleOffline = () => setIsOnline(false)

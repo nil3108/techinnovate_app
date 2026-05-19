@@ -210,6 +210,30 @@ function doPost(e) {
       return json({success: true, fills: dataRows});
     }
     
+    // GET ALL DATA
+    if (action === 'getData') {
+      const ss = SpreadsheetApp.openById(SHEET_ID);
+      const getSheetData = (name) => {
+        const sheet = ss.getSheetByName(name);
+        if (!sheet) return [];
+        const values = sheet.getDataRange().getValues();
+        const headers = values[0];
+        return values.slice(1).map(row => {
+          const obj = {};
+          headers.forEach((h, i) => obj[h] = row[i]);
+          return obj;
+        });
+      };
+      return json({
+        success: true,
+        fills: getSheetData('Fills'),
+        drivers: getSheetData('Drivers'),
+        vehicles: getSheetData('Vehicles'),
+        owners: getSheetData('Owners'),
+        alerts: getSheetData('Alerts')
+      });
+    }
+    
     return json({success: false, error: 'Unknown action: ' + action});
     
   } catch(err) {
