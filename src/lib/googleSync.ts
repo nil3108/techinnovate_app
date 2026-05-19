@@ -237,6 +237,36 @@ export const googleSync = {
       })
       return true
     } catch { return false }
+  },
+
+  async deleteDriver(driverId: string): Promise<boolean> {
+    if (!this.enabled) return true
+    try {
+      await fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        body: JSON.stringify({ 
+          action: 'deleteDriver', 
+          id: driverId
+        }),
+      })
+      return true
+    } catch { return false }
+  },
+
+  async deleteVehicle(vehicleId: string): Promise<boolean> {
+    if (!this.enabled) return true
+    try {
+      await fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        body: JSON.stringify({ 
+          action: 'deleteVehicle', 
+          id: vehicleId
+        }),
+      })
+      return true
+    } catch { return false }
   }
 }
 

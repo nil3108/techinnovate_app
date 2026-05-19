@@ -1298,8 +1298,9 @@ function OwnerDashboard({ lang, session }: { lang: Language; session: any }) {
                       <p className="font-medium text-[14px] text-[#111827]">{d.name}</p>
                       <p className="text-[12px] text-[#6B7280]">Code: {d.code} • {v?.plate || 'No vehicle'}</p>
                     </div>
-                    <button onClick={() => {
+                    <button onClick={async () => {
                       storage.saveDrivers(drivers.filter(x => x.id !== d.id))
+                      await googleSync.deleteDriver(d.id)
                       window.location.reload()
                     }} className="p-2 hover:bg-[#F5F6F8] rounded-lg">
                       <Trash2 className="w-4 h-4 text-[#9CA3AF]" />
@@ -1324,8 +1325,17 @@ function OwnerDashboard({ lang, session }: { lang: Language; session: any }) {
                     <p className="font-mono font-bold text-[16px] text-[#111827]">{v.plate}</p>
                     <p className="text-[13px] text-[#6B7280]">{v.model}</p>
                   </div>
-                  <div className="px-2.5 py-1 rounded-full bg-[#F5F6F8] text-[11px] font-medium text-[#6B7280]">
-                    {vFills.length} fills
+                  <div className="flex items-center gap-2">
+                    <div className="px-2.5 py-1 rounded-full bg-[#F5F6F8] text-[11px] font-medium text-[#6B7280]">
+                      {vFills.length} fills
+                    </div>
+                    <button onClick={async () => {
+                      storage.saveVehicles(vehicles.filter(x => x.id !== v.id))
+                      await googleSync.deleteVehicle(v.id)
+                      window.location.reload()
+                    }} className="p-1.5 hover:bg-[#FEE2E2] rounded-lg">
+                      <Trash2 className="w-4 h-4 text-[#EF4444]" />
+                    </button>
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-3 pt-3 border-t border-[#E2E6EB]">

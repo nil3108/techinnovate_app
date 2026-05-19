@@ -197,6 +197,32 @@ function doPost(e) {
       return json({success: true});
     }
     
+    // DELETE DRIVER
+    if (action === 'deleteDriver') {
+      const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('Drivers');
+      const values = sheet.getDataRange().getValues();
+      for (let i = 1; i < values.length; i++) {
+        if (values[i][0] === data.id) {
+          sheet.deleteRow(i + 1);
+          break;
+        }
+      }
+      return json({success: true});
+    }
+    
+    // DELETE VEHICLE
+    if (action === 'deleteVehicle') {
+      const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('Vehicles');
+      const values = sheet.getDataRange().getValues();
+      for (let i = 1; i < values.length; i++) {
+        if (values[i][0] === data.id) {
+          sheet.deleteRow(i + 1);
+          break;
+        }
+      }
+      return json({success: true});
+    }
+    
     // GET DATA
     if (action === 'getFills') {
       const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('Fills');
