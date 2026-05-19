@@ -223,7 +223,8 @@ function DriverLogin({ lang, setView, setSession }: { lang: Language; setView: (
 
   const handleLogin = () => {
     const drivers = storage.getDrivers()
-    const driver = drivers.find(d => d.code === code && d.status === 'active')
+    console.log('Login attempt, code:', code, 'drivers:', drivers)
+    const driver = drivers.find(d => String(d.code) === String(code))
     
     if (driver) {
       const session = { role: 'driver' as Role, userId: driver.id, ownerId: driver.ownerId, name: driver.name }
