@@ -1485,9 +1485,9 @@ function OwnerDashboard({ lang, session }: { lang: Language; session: any }) {
                 <div className="grid grid-cols-2 gap-2 mb-3">
                   {mediaItems.map((m, i) => (
                     <div key={i} className="aspect-video rounded-lg bg-[#F5F6F8] border border-[#E2E6EB] overflow-hidden relative group cursor-pointer"
-                      onClick={() => m.url && setLightboxMedia({ url: m.url, label: m.label })}
+                      onClick={() => m.url && m.url !== '[DRIVE]' && setLightboxMedia({ url: m.url, label: m.label })}
                     >
-                      {m.url ? (
+                      {m.url && m.url !== '[DRIVE]' ? (
                         m.isVideo ? (
                           <video src={m.url} className="w-full h-full object-cover" />
                         ) : (
@@ -1499,7 +1499,7 @@ function OwnerDashboard({ lang, session }: { lang: Language; session: any }) {
                           <span className="text-[10px] text-[#D1D5DB]">{m.label}</span>
                         </div>
                       )}
-                      {m.url && (
+                      {m.url && m.url !== '[DRIVE]' && (
                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
                           <span className="text-white text-[11px] font-medium opacity-0 group-hover:opacity-100 transition-opacity">
                             {m.isVideo ? '▶ Play' : '🔍 View'}

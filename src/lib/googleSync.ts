@@ -57,24 +57,13 @@ export const googleSync = {
   },
 
   async saveFill(fill: Fill): Promise<boolean> {
-    // DON'T save full media to localStorage - only save metadata
-    // Media is in Google Drive, localStorage is just for cache
     const fills = storage.getFills()
-    const fillForLocal = {
-      ...fill,
-      // Strip out large data URLs to avoid quota
-      videoUrl: fill.videoUrl ? '[DRIVE]' : '',
-      pumpPhotoUrl: fill.pumpPhotoUrl ? '[DRIVE]' : '',
-      receiptPhotoUrl: fill.receiptPhotoUrl ? '[DRIVE]' : '',
-      odoPhotoUrl: fill.odoPhotoUrl ? '[DRIVE]' : '',
-    }
     
     try {
-      storage.saveFills([...fills, fillForLocal])
+      storage.saveFills([...fills, fill])
     } catch (e) {
-      // If still exceeds, keep only last 20 fills locally
       console.warn('LocalStorage full, trimming old fills')
-      const recent = [...fills, fillForLocal].slice(-20)
+      const recent = [...fills, fill].slice(-20)
       localStorage.setItem('cng_fills', JSON.stringify(recent))
     }
     
