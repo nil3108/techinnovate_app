@@ -437,9 +437,9 @@ function AdminLogin({ lang, setView, setSession }: { lang: Language; setView: (v
 
 function DriverDashboard({ lang, session, setView }: { lang: Language; session: any; setView: (v: View) => void }) {
   const drivers = storage.getDrivers()
-  const driver = drivers.find(d => d.id === session.userId)
+  const driver = drivers.find(d => String(d.id) === String(session.userId))
   const vehicles = storage.getVehicles()
-  const vehicle = vehicles.find(v => v.id === driver?.assignedVehicleId)
+  const vehicle = vehicles.find(v => String(v.id) === String(driver?.assignedVehicleId))
   const fills = storage.getFills().filter(f => f.driverId === session.userId)
 
   return (
@@ -791,8 +791,8 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
 
   const vehicles = storage.getVehicles()
   const drivers = storage.getDrivers()
-  const driver = drivers.find(d => d.id === session.userId)
-  const defaultVeh = driver?.assignedVehicleId ? vehicles.find(v => v.id === driver.assignedVehicleId) : null
+  const driver = drivers.find(d => String(d.id) === String(session.userId))
+  const defaultVeh = driver?.assignedVehicleId ? vehicles.find(v => String(v.id) === String(driver.assignedVehicleId)) : null
 
   const [form, setForm] = useState({
     vehicleId: defaultVeh?.id || '',
@@ -814,7 +814,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
     if (isSubmitting) return
     setIsSubmitting(true)
 
-    const vehicle = vehicles.find(v => v.id === form.vehicleId || v.id === String(form.vehicleId))
+    const vehicle = vehicles.find(v => String(v.id) === String(form.vehicleId))
     if (!vehicle) { setIsSubmitting(false); alert('Please select a vehicle'); return }
 
     let distanceDiff = 0
@@ -944,7 +944,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
 
         // Update vehicle odo
         const allVehicles = storage.getVehicles()
-        storage.saveVehicles(allVehicles.map(v => v.id === form.vehicleId ? { ...v, currentOdo: parseInt(form.odoReading) } : v))
+        storage.saveVehicles(allVehicles.map(v => String(v.id) === String(form.vehicleId) ? { ...v, currentOdo: parseInt(form.odoReading) } : v))
       } catch (e) {
         console.error('Background sync error:', e)
       }
