@@ -1837,9 +1837,9 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
             <div className="flex gap-2 justify-end">
               <button onClick={() => setEditingDriverVehicle(null)} className="px-4 py-2 rounded-xl bg-[#F5F6F8] text-[#6B7280] text-[13px] font-medium">Cancel</button>
               <button onClick={() => {
-                const veh = vehicles.find(v => v.id === editVehicleId)
+                const veh = vehicles.find(v => String(v.id) === String(editVehicleId))
                 const plate = veh?.plate || null
-                const updated = drivers.map(d => d.id === editingDriverVehicle.id ? { ...d, assignedVehicleId: plate } : d)
+                const updated = drivers.map(d => String(d.id) === String(editingDriverVehicle.id) ? { ...d, assignedVehicleId: plate } : d)
                 storage.saveDrivers(updated)
                 googleSync.updateDriver({ id: editingDriverVehicle.id, assignedVehicleId: plate }).catch(() => {})
                 setEditingDriverVehicle(null)
@@ -1859,7 +1859,7 @@ function AddDriverModal({ lang, ownerId, onClose }: { lang: Language; ownerId: s
   const [vehicleId, setVehicleId] = useState('')
 
   const handleSave = () => {
-    const veh = vehicles.find(v => v.id === vehicleId)
+    const veh = vehicles.find(v => String(v.id) === String(vehicleId))
     const plate = veh?.plate || null
     const newDriver = {
       id: 'drv' + Date.now(),
