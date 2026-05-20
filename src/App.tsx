@@ -810,7 +810,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
 
   const total = parseFloat(form.kgs) * parseFloat(form.rate) || 0
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     if (isSubmitting) return
     setIsSubmitting(true)
 
@@ -869,27 +869,30 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
     setView('driver-dash')
     setIsSubmitting(false)
 
-    // --- Background: upload media, update fill URLs, sync to Sheets/create alerts ---
-    ;(async () => {
+    // --- Background: upload media, update fill URLs, sync to Sheets, create alerts ---
+    // Alerts and sheet sync run in a separate try/catch from media upload so upload failures
+    // cannot prevent alerts from being saved.
+    const runBackground = async () => {
+      let videoUrl = '', pumpUrl = '', receiptUrl = '', odoUrl = ''
       try {
-        const uploadResults: {type: string; url: string}[] = []
         const uploads = [
-          captures.video && googleSync.uploadMedia(captures.video.blob, `video_${timestamp}.webm`, folderName).then(url => ({type: 'video', url})).catch(() => ({type: 'video', url: ''})),
-          captures.pump && googleSync.uploadMedia(captures.pump.blob, `pump_${timestamp}.jpg`, folderName).then(url => ({type: 'pump', url})).catch(() => ({type: 'pump', url: ''})),
-          captures.receipt && googleSync.uploadMedia(captures.receipt.blob, `receipt_${timestamp}.jpg`, folderName).then(url => ({type: 'receipt', url})).catch(() => ({type: 'receipt', url: ''})),
-          captures.odo && googleSync.uploadMedia(captures.odo.blob, `odo_${timestamp}.jpg`, folderName).then(url => ({type: 'odo', url})).catch(() => ({type: 'odo', url: ''})),
-        ].filter(Boolean) as Promise<{type: string; url: string}>[]
+          captures.video && googleSync.uploadMedia(captures.video.blob, `video_${timestamp}.webm`, folderName).then(url => { videoUrl = url }).catch(() => {}),
+          captures.pump && googleSync.uploadMedia(captures.pump.blob, `pump_${timestamp}.jpg`, folderName).then(url => { pumpUrl = url }).catch(() => {}),
+          captures.receipt && googleSync.uploadMedia(captures.receipt.blob, `receipt_${timestamp}.jpg`, folderName).then(url => { receiptUrl = url }).catch(() => {}),
+          captures.odo && googleSync.uploadMedia(captures.odo.blob, `odo_${timestamp}.jpg`, folderName).then(url => { odoUrl = url }).catch(() => {}),
+        ].filter(Boolean) as Promise<void>[]
+        if (uploads.length > 0) await Promise.all(uploads)
+      } catch (e) {
+        console.error('Media upload error:', e)
+      }
 
-        if (uploads.length > 0) {
-          const results = await Promise.all(uploads)
-          uploadResults.push(...results)
-        }
-        const urls = Object.fromEntries(uploadResults.map(r => [r.type, r.url]))
-
-        const updatedFill = { ...fill, videoUrl: urls.video || '', pumpPhotoUrl: urls.pump || '', receiptPhotoUrl: urls.receipt || '', odoPhotoUrl: urls.odo || '' }
+      // Always sync + create alerts, regardless of upload success
+      try {
+        const updatedFill = { ...fill, videoUrl, pumpPhotoUrl: pumpUrl, receiptPhotoUrl: receiptUrl, odoPhotoUrl: odoUrl }
         const allFills = storage.getFills().map(f => f.id === fillId ? updatedFill : f)
         storage.saveFills(allFills)
 
+        // Sheet sync
         if (!pendingApproval) {
           const sheetPayload = {
             action: 'addFill',
@@ -924,7 +927,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
           }).then(r => r.text()).then(t => console.log('Sheet sync response:', t.substring(0,100))).catch(e => console.error('Sheet sync error:', e))
         }
 
-        // Create alerts
+        // Alerts — always created regardless of upload/sync outcome
         const alertsList = storage.getAlerts()
         if (mismatch) {
           alertsList.push({ id: 'alert' + Date.now(), time: new Date().toISOString(), event: `Location mismatch: ${Math.round(distanceDiff)}m`, user: session.name, type: 'location_mismatch', ownerId: session.ownerId, resolved: false })
@@ -945,7 +948,8 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
       } catch (e) {
         console.error('Background sync error:', e)
       }
-    })()
+    }
+    setTimeout(runBackground, 0)
   }
 
   const steps = [
