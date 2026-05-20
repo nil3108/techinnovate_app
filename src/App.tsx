@@ -23,9 +23,16 @@ function normalizeKeys(obj: any, expectedKeys: Record<string, string>): any {
   for (const [expected, actual] of Object.entries(expectedKeys)) {
     lowerMap[expected.toLowerCase().replace(/[\s_-]/g, '')] = actual
   }
+  let emptyKeyMapped = false
   for (const key of Object.keys(obj)) {
-    const normalized = lowerMap[key.toLowerCase().replace(/[\s_-]/g, '')]
-    result[normalized || key] = obj[key]
+    const normalized = key.toLowerCase().replace(/[\s_-]/g, '')
+    const mapped = lowerMap[normalized]
+    if (!mapped && normalized === '' && !emptyKeyMapped && 'id' in expectedKeys) {
+      result['id'] = obj[key]
+      emptyKeyMapped = true
+    } else {
+      result[mapped || key] = obj[key]
+    }
   }
   return result
 }
