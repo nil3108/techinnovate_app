@@ -50,14 +50,14 @@ export default function App() {
         
         if (data?.success) {
           console.log('Drivers from sheet:', data.drivers)
-          // Always use sheet data completely (replace local)
-          if (data.drivers) {
+          // Only overwrite if sheet has actual data (preserve demo data if sheet is empty)
+          if (data.drivers?.length > 0) {
             storage.saveDrivers(data.drivers)
           }
-          if (data.vehicles) {
+          if (data.vehicles?.length > 0) {
             storage.saveVehicles(data.vehicles)
           }
-          if (data.fills) {
+          if (data.fills?.length > 0) {
             console.log('Fill keys:', Object.keys(data.fills[0] || {}))
             console.log('First fill raw:', data.fills[0])
             // Handle sheet where first column header might be ' ' instead of 'id'
