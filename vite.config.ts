@@ -8,7 +8,10 @@ export default defineConfig({
     registerType: 'autoUpdate',
     workbox: {
       globPatterns: ['**/*.{js,css,html,jpg,jpeg,png,svg,ico,json}'],
-      navigateFallback: '/index.html',
+      navigateFallback: '/techinnovate_app/index.html',
+      cleanupOutdatedCaches: true,
+      skipWaiting: true,
+      clientsClaim: true,
     },
     manifest: {
       name: 'Techinnovate Fleet CNG',
@@ -31,5 +34,12 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        entryFileNames: 'assets/[name]-[hash].js',
+        chunkFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash].[ext]',
+      },
+    },
   },
 })
