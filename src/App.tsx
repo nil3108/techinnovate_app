@@ -825,11 +825,14 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
   const vehicles = storage.getVehicles()
   const drivers = storage.getDrivers()
   const driver = drivers.find(d => String(d.id) === String(session.userId))
-  const defaultVeh = driver?.assignedVehicleId ? vehicles.find(v => v.plate === driver.assignedVehicleId) : null
+  const assignedPlate = driver?.assignedVehicleId?.trim() || ''
+  const defaultVeh = assignedPlate ? vehicles.find(v => v.plate === assignedPlate) : null
 
-  console.log('FillWizard - vehicles:', vehicles.map(v => ({ id: v.id, plate: v.plate })))
-  console.log('FillWizard - driver:', driver)
-  console.log('FillWizard - defaultVeh:', defaultVeh)
+  console.log('[FillWizard] vehicles:', vehicles.map(v => ({ id: v.id, plate: v.plate })))
+  console.log('[FillWizard] driver:', driver)
+  console.log('[FillWizard] assignedPlate:', assignedPlate)
+  console.log('[FillWizard] defaultVeh:', defaultVeh)
+  console.log('[FillWizard] session.userId:', session.userId)
 
   const [form, setForm] = useState({
     vehicleId: defaultVeh ? String(defaultVeh.id) : '',
@@ -851,8 +854,8 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
     if (isSubmitting) return
     setIsSubmitting(true)
 
-    console.log('Submit - form.vehicleId:', form.vehicleId, 'type:', typeof form.vehicleId)
-    console.log('Submit - vehicles:', vehicles.map(v => ({ id: v.id, plate: v.plate })))
+    console.log('[Submit] form.vehicleId:', form.vehicleId)
+    console.log('[Submit] vehicles:', vehicles.map(v => ({ id: v.id, plate: v.plate })))
     
     const vehicle = vehicles.find(v => String(v.id) === String(form.vehicleId))
     if (!vehicle) { 
@@ -860,6 +863,10 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
       alert('Please select a vehicle. Available: ' + vehicles.map(v => v.plate).join(', '))
       return 
     }
+
+    const selPlate = vehicle.plate?.trim() || ''
+    const isDifferentVehicle = assignedPlate !== '' && selPlate !== '' && assignedPlate !== selPlate
+    console.log('[Submit] selectedPlate:', selPlate, 'assignedPlate:', assignedPlate, 'isDifferent:', isDifferentVehicle)
 
     let distanceDiff = 0
     let mismatch = false
@@ -902,9 +909,10 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
       distanceDiff, mismatch, fuelDropPercent,
       ownerId: session.ownerId,
       verified: false,
-      pendingVehicleApproval: driver?.assignedVehicleId && vehicle && vehicle.plate !== driver.assignedVehicleId ? true : false,
+      pendingVehicleApproval: isDifferentVehicle,
     }
     const pendingApproval = fill.pendingVehicleApproval
+    console.log('[Submit] fill created:', { id: fill.id, vehicleId: fill.vehicleId, plate: vehicle.plate, pendingApproval })
 
     const existingFills = storage.getFills()
     storage.saveFills([...existingFills, fill])
@@ -963,15 +971,16 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
             verified: updatedFill.verified,
             pendingVehicleApproval: false,
           }
+          console.log('[SheetSync] SYNCING to sheets (approved):', sheetPayload.vehicleId)
           fetch(APPS_SCRIPT_URL, {
             method: 'POST',
             mode: 'cors',
             redirect: 'follow',
             headers: {'Content-Type': 'text/plain;charset=utf-8'},
             body: JSON.stringify(sheetPayload),
-          }).then(r => r.text()).then(t => console.log('Sheet sync response:', t.substring(0,100))).catch(e => console.error('Sheet sync error:', e))
+          }).then(r => r.text()).then(t => console.log('[SheetSync] response:', t.substring(0,100))).catch(e => console.error('[SheetSync] error:', e))
         } else {
-          console.log('Fill pending approval - NOT syncing to sheets. Vehicle:', vehicle.plate)
+          console.log('[SheetSync] BLOCKED - fill pending approval. NOT sending to sheets. Vehicle:', vehicle.plate)
         }
 
         // Alerts — always created regardless of upload/sync outcome
@@ -983,10 +992,12 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
           alertsList.push({ id: 'alert' + Date.now() + 1, time: new Date().toISOString(), event: `Fuel drop ${fuelDropPercent.toFixed(1)}%`, user: session.name, type: 'fuel_drop', ownerId: session.ownerId, resolved: false })
         }
         if (pendingApproval) {
-          alertsList.push({ id: 'alert' + Date.now() + 2, time: new Date().toISOString(), event: `Vehicle override: ${driver?.name || session.name} used ${vehicle.plate} instead of assigned vehicle`, user: session.name, type: 'vehicle_override', ownerId: session.ownerId, resolved: false })
+          console.log('[Alert] Creating vehicle_override alert')
+          alertsList.push({ id: 'alert' + Date.now() + 2, time: new Date().toISOString(), event: `Vehicle override: ${driver?.name || session.name} used ${vehicle.plate} instead of assigned vehicle (${assignedPlate})`, user: session.name, type: 'vehicle_override', ownerId: session.ownerId, resolved: false })
         }
         if (mismatch || fuelDropPercent > 20 || pendingApproval) {
           storage.saveAlerts(alertsList)
+          console.log('[Alert] Saved alerts. Total:', alertsList.length)
         }
 
         // Update vehicle odo
@@ -1122,10 +1133,14 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
                       onChange={e => {
                         const val = e.target.value
                         const selectedVeh = vehicles.find(v => String(v.id) === String(val))
-                        if (driver?.assignedVehicleId && selectedVeh && selectedVeh.plate !== driver.assignedVehicleId) {
+                        const selPlate = selectedVeh?.plate?.trim() || ''
+                        console.log('[VehicleSelect] selected:', selPlate, 'assigned:', assignedPlate, 'match:', selPlate === assignedPlate)
+                        if (assignedPlate && selPlate && selPlate !== assignedPlate) {
+                          console.log('[VehicleSelect] MISMATCH - showing warning')
                           setPendingVehicleSelection(val)
                           setShowVehicleWarning(true)
                         } else {
+                          console.log('[VehicleSelect] OK - setting form value')
                           setForm(f => ({...f, vehicleId: val}))
                         }
                       }}
