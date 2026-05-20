@@ -936,39 +936,43 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
         const allFills = storage.getFills().map(f => f.id === fillId ? updatedFill : f)
         storage.saveFills(allFills)
 
-        // Sheet sync — always sync, including pending approval fills
-        const sheetPayload = {
-          action: 'addFill',
-          id: updatedFill.id,
-          vehicleId: updatedFill.vehicleId,
-          driverId: updatedFill.driverId,
-          time: updatedFill.time,
-          station: updatedFill.station,
-          kgs: updatedFill.kgs,
-          rate: updatedFill.rate,
-          total: updatedFill.total,
-          videoUrl: updatedFill.videoUrl,
-          pumpPhotoUrl: updatedFill.pumpPhotoUrl,
-          receiptPhotoUrl: updatedFill.receiptPhotoUrl,
-          odoPhotoUrl: updatedFill.odoPhotoUrl,
-          pumpGPS: updatedFill.pumpGPS ? `${updatedFill.pumpGPS.lat},${updatedFill.pumpGPS.lng}` : '',
-          receiptGPS: updatedFill.receiptGPS ? `${updatedFill.receiptGPS.lat},${updatedFill.receiptGPS.lng}` : '',
-          odoGPS: updatedFill.odoGPS ? `${updatedFill.odoGPS.lat},${updatedFill.odoGPS.lng}` : '',
-          odoReading: updatedFill.odoReading,
-          distanceDiff: updatedFill.distanceDiff,
-          mismatch: updatedFill.mismatch,
-          fuelDropPercent: updatedFill.fuelDropPercent,
-          ownerId: updatedFill.ownerId,
-          verified: updatedFill.verified,
-          pendingVehicleApproval: updatedFill.pendingVehicleApproval || false,
+        // Sheet sync — ONLY sync if NOT pending approval
+        if (!pendingApproval) {
+          const sheetPayload = {
+            action: 'addFill',
+            id: updatedFill.id,
+            vehicleId: vehicle.plate,
+            driverId: updatedFill.driverId,
+            time: updatedFill.time,
+            station: updatedFill.station,
+            kgs: updatedFill.kgs,
+            rate: updatedFill.rate,
+            total: updatedFill.total,
+            videoUrl: updatedFill.videoUrl,
+            pumpPhotoUrl: updatedFill.pumpPhotoUrl,
+            receiptPhotoUrl: updatedFill.receiptPhotoUrl,
+            odoPhotoUrl: updatedFill.odoPhotoUrl,
+            pumpGPS: updatedFill.pumpGPS ? `${updatedFill.pumpGPS.lat},${updatedFill.pumpGPS.lng}` : '',
+            receiptGPS: updatedFill.receiptGPS ? `${updatedFill.receiptGPS.lat},${updatedFill.receiptGPS.lng}` : '',
+            odoGPS: updatedFill.odoGPS ? `${updatedFill.odoGPS.lat},${updatedFill.odoGPS.lng}` : '',
+            odoReading: updatedFill.odoReading,
+            distanceDiff: updatedFill.distanceDiff,
+            mismatch: updatedFill.mismatch,
+            fuelDropPercent: updatedFill.fuelDropPercent,
+            ownerId: updatedFill.ownerId,
+            verified: updatedFill.verified,
+            pendingVehicleApproval: false,
+          }
+          fetch(APPS_SCRIPT_URL, {
+            method: 'POST',
+            mode: 'cors',
+            redirect: 'follow',
+            headers: {'Content-Type': 'text/plain;charset=utf-8'},
+            body: JSON.stringify(sheetPayload),
+          }).then(r => r.text()).then(t => console.log('Sheet sync response:', t.substring(0,100))).catch(e => console.error('Sheet sync error:', e))
+        } else {
+          console.log('Fill pending approval - NOT syncing to sheets. Vehicle:', vehicle.plate)
         }
-        fetch(APPS_SCRIPT_URL, {
-          method: 'POST',
-          mode: 'cors',
-          redirect: 'follow',
-          headers: {'Content-Type': 'text/plain;charset=utf-8'},
-          body: JSON.stringify(sheetPayload),
-        }).then(r => r.text()).then(t => console.log('Sheet sync response:', t.substring(0,100))).catch(e => console.error('Sheet sync error:', e))
 
         // Alerts — always created regardless of upload/sync outcome
         const alertsList = storage.getAlerts()
@@ -1547,6 +1551,8 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                   {fill.pendingVehicleApproval && (
                     <button
                       onClick={() => {
+                        const veh = vehicles.find(v => String(v.id) === String(fill.vehicleId))
+                        const vehPlate = veh ? veh.plate : fill.vehicleId
                         const updated = fills.map(f => f.id === fill.id ? { ...f, pendingVehicleApproval: false } : f)
                         storage.saveFills(updated)
                         const approved = updated.find(f => f.id === fill.id)
@@ -1554,7 +1560,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                           const sheetPayload = {
                             action: 'addFill',
                             id: approved.id,
-                            vehicleId: approved.vehicleId,
+                            vehicleId: vehPlate,
                             driverId: approved.driverId,
                             time: approved.time,
                             station: approved.station,
@@ -1574,14 +1580,16 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                             fuelDropPercent: approved.fuelDropPercent,
                             ownerId: approved.ownerId,
                             verified: approved.verified,
+                            pendingVehicleApproval: false,
                           }
+                          console.log('Approving fill from fills tab:', sheetPayload)
                           fetch(APPS_SCRIPT_URL, {
                             method: 'POST',
                             mode: 'cors',
                             redirect: 'follow',
                             headers: {'Content-Type': 'text/plain;charset=utf-8'},
                             body: JSON.stringify(sheetPayload),
-                          }).then(() => { window.location.reload() }).catch(() => { window.location.reload() })
+                          }).then(r => r.text()).then(t => { console.log('Sheet sync response:', t.substring(0,100)); window.location.reload() }).catch(() => { window.location.reload() })
                         } else {
                           window.location.reload()
                         }
@@ -1825,14 +1833,17 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                     <button
                       onClick={() => {
                         const allFills = storage.getFills()
-                        const pendingFill = allFills.find(f => f.pendingVehicleApproval && f.driverId === alert.user && new Date(f.time).getTime() > new Date(alert.time).getTime() - 3600000)
+                        const vehicles = storage.getVehicles()
+                        const pendingFill = allFills.find(f => f.pendingVehicleApproval && f.driverId === alert.user)
                         if (pendingFill) {
+                          const veh = vehicles.find(v => String(v.id) === String(pendingFill.vehicleId))
+                          const vehPlate = veh ? veh.plate : pendingFill.vehicleId
                           const updatedFills = allFills.map(f => f.id === pendingFill.id ? { ...f, pendingVehicleApproval: false } : f)
                           storage.saveFills(updatedFills)
                           const sheetPayload = {
                             action: 'addFill',
                             id: pendingFill.id,
-                            vehicleId: pendingFill.vehicleId,
+                            vehicleId: vehPlate,
                             driverId: pendingFill.driverId,
                             time: pendingFill.time,
                             station: pendingFill.station,
@@ -1854,13 +1865,16 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                             verified: pendingFill.verified,
                             pendingVehicleApproval: false,
                           }
+                          console.log('Approving fill and syncing to sheets:', sheetPayload)
                           fetch(APPS_SCRIPT_URL, {
                             method: 'POST',
                             mode: 'cors',
                             redirect: 'follow',
                             headers: {'Content-Type': 'text/plain;charset=utf-8'},
                             body: JSON.stringify(sheetPayload),
-                          }).catch(() => {})
+                          }).then(r => r.text()).then(t => console.log('Sheet sync response:', t.substring(0,100))).catch(e => console.error('Sheet sync error:', e))
+                        } else {
+                          console.log('No pending fill found for alert user:', alert.user)
                         }
                         const allAlerts = storage.getAlerts()
                         storage.saveAlerts(allAlerts.map(a => a.id === alert.id ? { ...a, resolved: true } : a))
