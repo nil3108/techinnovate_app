@@ -462,7 +462,7 @@ function DriverDashboard({ lang, session, setView }: { lang: Language; session: 
   const drivers = storage.getDrivers()
   const driver = drivers.find(d => String(d.id) === String(session.userId))
   const vehicles = storage.getVehicles()
-  const vehicle = vehicles.find(v => String(v.id) === String(driver?.assignedVehicleId))
+  const vehicle = vehicles.find(v => v.plate === driver?.assignedVehicleId)
   const fills = storage.getFills().filter(f => f.driverId === session.userId)
 
   return (
@@ -815,7 +815,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
   const vehicles = storage.getVehicles()
   const drivers = storage.getDrivers()
   const driver = drivers.find(d => String(d.id) === String(session.userId))
-  const defaultVeh = driver?.assignedVehicleId ? vehicles.find(v => String(v.id) === String(driver.assignedVehicleId)) : null
+  const defaultVeh = driver?.assignedVehicleId ? vehicles.find(v => v.plate === driver.assignedVehicleId) : null
 
   const [form, setForm] = useState({
     vehicleId: defaultVeh?.id || '',
@@ -881,7 +881,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
       distanceDiff, mismatch, fuelDropPercent,
       ownerId: session.ownerId,
       verified: false,
-      pendingVehicleApproval: driver?.assignedVehicleId && vehicle && String(vehicle.id) !== String(driver.assignedVehicleId) ? true : false,
+      pendingVehicleApproval: driver?.assignedVehicleId && vehicle && vehicle.plate !== driver.assignedVehicleId ? true : false,
     }
     const pendingApproval = fill.pendingVehicleApproval
 
@@ -1101,7 +1101,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
                       <option value="">Select vehicle</option>
                       {vehicles.map(v => <option key={v.id} value={v.id}>{v.plate}</option>)}
                     </select>
-                    {driver?.assignedVehicleId && form.vehicleId && (() => { const sv = vehicles.find(v => String(v.id) === String(form.vehicleId)); return sv && String(sv.id) !== String(driver.assignedVehicleId) })() && (
+                    {driver?.assignedVehicleId && form.vehicleId && (() => { const sv = vehicles.find(v => String(v.id) === String(form.vehicleId)); return sv && sv.plate !== driver.assignedVehicleId })() && (
                       <p className="text-[11px] text-[#E10600] mt-1 flex items-center gap-1">
                         <AlertTriangle className="w-3 h-3" /> Not your assigned vehicle — owner approval required
                       </p>
@@ -1392,7 +1392,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
             <h3 className="text-[13px] font-semibold text-[#6B7280] uppercase tracking-wider mb-3">Drivers</h3>
             <div className="space-y-2">
               {drivers.map(d => {
-                const v = vehicles.find(v => String(v.id) === String(d.assignedVehicleId))
+                const v = vehicles.find(veh => veh.plate === d.assignedVehicleId)
                 return (
                   <div key={d.id} className="p-3.5 rounded-xl bg-white border border-[#E2E6EB] flex items-center justify-between">
                     <div>
@@ -1555,7 +1555,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
               </button>
             </div>
           ) : drivers.map(d => {
-            const v = vehicles.find(v => String(v.id) === String(d.assignedVehicleId))
+            const v = vehicles.find(veh => veh.plate === d.assignedVehicleId)
             const dFills = fills.filter(f => f.driverId === d.id)
             return (
               <div key={d.id} className="p-4 rounded-2xl bg-white border border-[#E2E6EB] shadow-sm">
@@ -1828,15 +1828,15 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
               className="w-full h-[52px] px-4 bg-white border border-[#E2E6EB] rounded-xl text-[15px] focus:border-[#E10600] focus:outline-none focus:ring-2 focus:ring-[#E10600]/20 mb-4"
             >
               <option value="">No vehicle</option>
-              {vehicles.map(v => <option key={v.id} value={v.id}>{v.plate}</option>)}
+              {vehicles.map(v => <option key={v.id} value={v.plate}>{v.plate}</option>)}
             </select>
             <div className="flex gap-2 justify-end">
               <button onClick={() => setEditingDriverVehicle(null)} className="px-4 py-2 rounded-xl bg-[#F5F6F8] text-[#6B7280] text-[13px] font-medium">Cancel</button>
               <button onClick={() => {
-                const vehicleId = editVehicleId || null
-                const updated = drivers.map(d => String(d.id) === String(editingDriverVehicle.id) ? { ...d, assignedVehicleId: vehicleId } : d)
+                const plate = editVehicleId || null
+                const updated = drivers.map(d => String(d.id) === String(editingDriverVehicle.id) ? { ...d, assignedVehicleId: plate } : d)
                 storage.saveDrivers(updated)
-                googleSync.updateDriver({ id: editingDriverVehicle.id, assignedVehicleId: vehicleId }).catch(() => {})
+                googleSync.updateDriver({ id: editingDriverVehicle.id, assignedVehicleId: plate }).catch(() => {})
                 setEditingDriverVehicle(null)
               }} className="px-4 py-2 rounded-xl bg-[#E10600] text-white text-[13px] font-medium">Save</button>
             </div>
@@ -1854,12 +1854,12 @@ function AddDriverModal({ lang, ownerId, onClose }: { lang: Language; ownerId: s
   const [vehicleId, setVehicleId] = useState('')
 
   const handleSave = () => {
-    const vehicleIdVal = vehicleId || null
+    const plate = vehicleId || null
     const newDriver = {
       id: 'drv' + Date.now(),
       name,
       code,
-      assignedVehicleId: vehicleIdVal,
+      assignedVehicleId: plate,
       ownerId,
       status: 'active' as const,
       createdAt: new Date().toISOString(),
@@ -1873,7 +1873,7 @@ function AddDriverModal({ lang, ownerId, onClose }: { lang: Language; ownerId: s
       id: newDriver.id,
       name: newDriver.name,
       code: newDriver.code,
-      assignedVehicleId: vehicleIdVal,
+      assignedVehicleId: plate,
       ownerId: newDriver.ownerId,
     }).catch(() => {})
     
@@ -1889,7 +1889,7 @@ function AddDriverModal({ lang, ownerId, onClose }: { lang: Language; ownerId: s
           <input value={code} onChange={e => setCode(e.target.value)} placeholder={t('code', lang) + ' (4 digits)'} maxLength={4} className="w-full h-12 px-4 bg-[#F5F6F8] border border-[#E2E6EB] rounded-xl font-mono" />
           <select value={vehicleId} onChange={e => setVehicleId(e.target.value)} className="w-full h-12 px-4 bg-[#F5F6F8] border border-[#E2E6EB] rounded-xl">
             <option value="">No vehicle</option>
-            {vehicles.map(v => <option key={v.id} value={v.id}>{v.plate}</option>)}
+            {vehicles.map(v => <option key={v.id} value={v.plate}>{v.plate}</option>)}
           </select>
         </div>
         <div className="flex gap-3 mt-6">
