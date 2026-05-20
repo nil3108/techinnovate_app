@@ -827,8 +827,12 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
   const driver = drivers.find(d => String(d.id) === String(session.userId))
   const defaultVeh = driver?.assignedVehicleId ? vehicles.find(v => v.plate === driver.assignedVehicleId) : null
 
+  console.log('FillWizard - vehicles:', vehicles.map(v => ({ id: v.id, plate: v.plate })))
+  console.log('FillWizard - driver:', driver)
+  console.log('FillWizard - defaultVeh:', defaultVeh)
+
   const [form, setForm] = useState({
-    vehicleId: defaultVeh?.id || '',
+    vehicleId: defaultVeh ? String(defaultVeh.id) : '',
     station: 'VGL' as Fill['station'],
     kgs: '',
     rate: '',
@@ -847,8 +851,15 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
     if (isSubmitting) return
     setIsSubmitting(true)
 
+    console.log('Submit - form.vehicleId:', form.vehicleId, 'type:', typeof form.vehicleId)
+    console.log('Submit - vehicles:', vehicles.map(v => ({ id: v.id, plate: v.plate })))
+    
     const vehicle = vehicles.find(v => String(v.id) === String(form.vehicleId))
-    if (!vehicle) { setIsSubmitting(false); alert('Please select a vehicle'); return }
+    if (!vehicle) { 
+      setIsSubmitting(false)
+      alert('Please select a vehicle. Available: ' + vehicles.map(v => v.plate).join(', '))
+      return 
+    }
 
     let distanceDiff = 0
     let mismatch = false
@@ -1117,7 +1128,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
                       className="w-full h-[52px] px-4 bg-white border border-[#E2E6EB] rounded-xl text-[15px] focus:border-[#3B82F6] focus:outline-none"
                     >
                       <option value="">Select vehicle</option>
-                      {vehicles.map(v => <option key={v.id} value={v.id}>{v.plate}</option>)}
+                      {vehicles.map(v => <option key={v.id} value={String(v.id)}>{v.plate}</option>)}
                     </select>
                     {driver?.assignedVehicleId && form.vehicleId && (() => { const sv = vehicles.find(v => String(v.id) === String(form.vehicleId)); return sv && sv.plate !== driver.assignedVehicleId })() && (
                       <p className="text-[11px] text-[#E10600] mt-1 flex items-center gap-1">
