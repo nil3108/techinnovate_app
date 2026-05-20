@@ -206,10 +206,15 @@ export const googleSync = {
   async updateDriver(driver: any): Promise<boolean> {
     if (!this.enabled) return true
     try {
+      const payload: any = { action: 'updateDriver', id: driver.id }
+      if (driver.code !== undefined) payload.code = driver.code
+      if (driver.assignedVehicleId !== undefined) payload.assignedVehicleId = driver.assignedVehicleId
       await fetch(APPS_SCRIPT_URL, {
         method: 'POST',
-        mode: 'no-cors',
-        body: JSON.stringify({ action: 'updateDriver', id: driver.id, code: driver.code, assignedVehicleId: driver.assignedVehicleId }),
+        mode: 'cors',
+        redirect: 'follow',
+        headers: {'Content-Type': 'text/plain;charset=utf-8'},
+        body: JSON.stringify(payload),
       })
       return true
     } catch { return false }

@@ -1862,7 +1862,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
               <button onClick={async () => {
                 const updated = drivers.map(d => d.id === editingDriverVehicle.id ? { ...d, assignedVehicleId: editVehicleId || null } : d)
                 storage.saveDrivers(updated)
-                await googleSync.updateDriver({ id: editingDriverVehicle.id, code: undefined, assignedVehicleId: editVehicleId || null })
+                await googleSync.updateDriver({ id: editingDriverVehicle.id, assignedVehicleId: editVehicleId || null })
                 window.location.reload()
               }} className="px-4 py-2 rounded-xl bg-[#E10600] text-white text-[13px] font-medium">Save</button>
             </div>
