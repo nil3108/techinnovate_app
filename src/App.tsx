@@ -32,7 +32,7 @@ function normalizeKeys(obj: any, expectedKeys: Record<string, string>): any {
 
 const VEHICLE_KEYS = { id: 'id', plate: 'plate', model: 'model', initialOdo: 'initialOdo', currentOdo: 'currentOdo', capacity: 'capacity', ownerId: 'ownerId', status: 'status' }
 const DRIVER_KEYS = { id: 'id', name: 'name', code: 'code', assignedVehicleId: 'assignedVehicleId', ownerId: 'ownerId', status: 'status', createdAt: 'createdAt' }
-const FILL_KEYS = { id: 'id', vehicleId: 'vehicleId', driverId: 'driverId', time: 'time', station: 'station', kgs: 'kgs', rate: 'rate', total: 'total', videoUrl: 'videoUrl', pumpPhotoUrl: 'pumpPhotoUrl', receiptPhotoUrl: 'receiptPhotoUrl', odoPhotoUrl: 'odoPhotoUrl', pumpGPS: 'pumpGPS', receiptGPS: 'receiptGPS', odoGPS: 'odoGPS', odoReading: 'odoReading', distanceDiff: 'distanceDiff', mismatch: 'mismatch', fuelDropPercent: 'fuelDropPercent', ownerId: 'ownerId', verified: 'verified' }
+const FILL_KEYS = { id: 'id', vehicleId: 'vehicleId', driverId: 'driverId', time: 'time', station: 'station', kgs: 'kgs', rate: 'rate', total: 'total', videoUrl: 'videoUrl', pumpPhotoUrl: 'pumpPhotoUrl', receiptPhotoUrl: 'receiptPhotoUrl', odoPhotoUrl: 'odoPhotoUrl', pumpGPS: 'pumpGPS', receiptGPS: 'receiptGPS', odoGPS: 'odoGPS', odoReading: 'odoReading', distanceDiff: 'distanceDiff', mismatch: 'mismatch', fuelDropPercent: 'fuelDropPercent', ownerId: 'ownerId', verified: 'verified', pendingVehicleApproval: 'pendingVehicleApproval' }
 const OWNER_KEYS = { id: 'id', name: 'name', email: 'email', phone: 'phone', business: 'business', password: 'password', status: 'status', createdAt: 'createdAt' }
 
 
@@ -105,6 +105,7 @@ export default function App() {
                 pumpGPS: parseGPS(nf.pumpGPS),
                 receiptGPS: parseGPS(nf.receiptGPS),
                 odoGPS: parseGPS(nf.odoGPS),
+                pendingVehicleApproval: nf.pendingVehicleApproval === true || nf.pendingVehicleApproval === 'true' || nf.pendingVehicleApproval === 'TRUE',
               }
             })
             storage.saveFills(cleanFills)
@@ -525,11 +526,18 @@ function DriverDashboard({ lang, session, setView }: { lang: Language; session: 
                   </div>
                   <div className="text-right">
                     <p className="text-[16px] font-semibold text-[#111827]">₹{fill.total.toFixed(0)}</p>
-                    <div className={`inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${
-                      fill.verified ? 'bg-[#DCFCE7] text-[#166534]' : 'bg-[#FEF3C7] text-[#92400E]'
-                    }`}>
-                      {fill.verified ? <CheckCircle2 className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
-                      {fill.verified ? t('verified', lang) : t('pending', lang)}
+                    <div className="flex flex-col items-end gap-1 mt-1">
+                      {fill.pendingVehicleApproval && (
+                        <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-[#FEF3C7] text-[#92400E]">
+                          <AlertTriangle className="w-3 h-3" /> Pending Approval
+                        </div>
+                      )}
+                      <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                        fill.verified ? 'bg-[#DCFCE7] text-[#166534]' : 'bg-[#F5F6F8] text-[#6B7280]'
+                      }`}>
+                        {fill.verified ? <CheckCircle2 className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+                        {fill.verified ? t('verified', lang) : t('pending', lang)}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -811,6 +819,8 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
   const [showCamera, setShowCamera] = useState<'video' | 'pump' | 'receipt' | 'odo' | null>(null)
   const [captures, setCaptures] = useState<Record<string, CameraCapture>>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [showVehicleWarning, setShowVehicleWarning] = useState(false)
+  const [pendingVehicleSelection, setPendingVehicleSelection] = useState('')
 
   const vehicles = storage.getVehicles()
   const drivers = storage.getDrivers()
@@ -915,40 +925,39 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
         const allFills = storage.getFills().map(f => f.id === fillId ? updatedFill : f)
         storage.saveFills(allFills)
 
-        // Sheet sync
-        if (!pendingApproval) {
-          const sheetPayload = {
-            action: 'addFill',
-            id: updatedFill.id,
-            vehicleId: updatedFill.vehicleId,
-            driverId: updatedFill.driverId,
-            time: updatedFill.time,
-            station: updatedFill.station,
-            kgs: updatedFill.kgs,
-            rate: updatedFill.rate,
-            total: updatedFill.total,
-            videoUrl: updatedFill.videoUrl,
-            pumpPhotoUrl: updatedFill.pumpPhotoUrl,
-            receiptPhotoUrl: updatedFill.receiptPhotoUrl,
-            odoPhotoUrl: updatedFill.odoPhotoUrl,
-            pumpGPS: updatedFill.pumpGPS ? `${updatedFill.pumpGPS.lat},${updatedFill.pumpGPS.lng}` : '',
-            receiptGPS: updatedFill.receiptGPS ? `${updatedFill.receiptGPS.lat},${updatedFill.receiptGPS.lng}` : '',
-            odoGPS: updatedFill.odoGPS ? `${updatedFill.odoGPS.lat},${updatedFill.odoGPS.lng}` : '',
-            odoReading: updatedFill.odoReading,
-            distanceDiff: updatedFill.distanceDiff,
-            mismatch: updatedFill.mismatch,
-            fuelDropPercent: updatedFill.fuelDropPercent,
-            ownerId: updatedFill.ownerId,
-            verified: updatedFill.verified,
-          }
-          fetch(APPS_SCRIPT_URL, {
-            method: 'POST',
-            mode: 'cors',
-            redirect: 'follow',
-            headers: {'Content-Type': 'text/plain;charset=utf-8'},
-            body: JSON.stringify(sheetPayload),
-          }).then(r => r.text()).then(t => console.log('Sheet sync response:', t.substring(0,100))).catch(e => console.error('Sheet sync error:', e))
+        // Sheet sync — always sync, including pending approval fills
+        const sheetPayload = {
+          action: 'addFill',
+          id: updatedFill.id,
+          vehicleId: updatedFill.vehicleId,
+          driverId: updatedFill.driverId,
+          time: updatedFill.time,
+          station: updatedFill.station,
+          kgs: updatedFill.kgs,
+          rate: updatedFill.rate,
+          total: updatedFill.total,
+          videoUrl: updatedFill.videoUrl,
+          pumpPhotoUrl: updatedFill.pumpPhotoUrl,
+          receiptPhotoUrl: updatedFill.receiptPhotoUrl,
+          odoPhotoUrl: updatedFill.odoPhotoUrl,
+          pumpGPS: updatedFill.pumpGPS ? `${updatedFill.pumpGPS.lat},${updatedFill.pumpGPS.lng}` : '',
+          receiptGPS: updatedFill.receiptGPS ? `${updatedFill.receiptGPS.lat},${updatedFill.receiptGPS.lng}` : '',
+          odoGPS: updatedFill.odoGPS ? `${updatedFill.odoGPS.lat},${updatedFill.odoGPS.lng}` : '',
+          odoReading: updatedFill.odoReading,
+          distanceDiff: updatedFill.distanceDiff,
+          mismatch: updatedFill.mismatch,
+          fuelDropPercent: updatedFill.fuelDropPercent,
+          ownerId: updatedFill.ownerId,
+          verified: updatedFill.verified,
+          pendingVehicleApproval: updatedFill.pendingVehicleApproval || false,
         }
+        fetch(APPS_SCRIPT_URL, {
+          method: 'POST',
+          mode: 'cors',
+          redirect: 'follow',
+          headers: {'Content-Type': 'text/plain;charset=utf-8'},
+          body: JSON.stringify(sheetPayload),
+        }).then(r => r.text()).then(t => console.log('Sheet sync response:', t.substring(0,100))).catch(e => console.error('Sheet sync error:', e))
 
         // Alerts — always created regardless of upload/sync outcome
         const alertsList = storage.getAlerts()
@@ -1093,9 +1102,18 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
                 <div className="space-y-4">
                   <div>
                     <label className="text-[12px] text-[#6B7280] uppercase tracking-wider mb-1.5 block">{t('vehicle', lang)}</label>
-<select
+                    <select
                       value={form.vehicleId}
-                      onChange={e => setForm(f => ({...f, vehicleId: e.target.value}))}
+                      onChange={e => {
+                        const val = e.target.value
+                        const selectedVeh = vehicles.find(v => String(v.id) === String(val))
+                        if (driver?.assignedVehicleId && selectedVeh && selectedVeh.plate !== driver.assignedVehicleId) {
+                          setPendingVehicleSelection(val)
+                          setShowVehicleWarning(true)
+                        } else {
+                          setForm(f => ({...f, vehicleId: val}))
+                        }
+                      }}
                       className="w-full h-[52px] px-4 bg-white border border-[#E2E6EB] rounded-xl text-[15px] focus:border-[#3B82F6] focus:outline-none"
                     >
                       <option value="">Select vehicle</option>
@@ -1288,6 +1306,43 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
           onClose={() => setShowCamera(null)}
           lang={lang}
         />
+      )}
+
+      {showVehicleWarning && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowVehicleWarning(false)}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="w-14 h-14 rounded-full bg-[#FEF3C7] flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle className="w-7 h-7 text-[#92400E]" />
+            </div>
+            <h3 className="text-[18px] font-bold text-center text-[#111827] mb-2">Vehicle Mismatch Warning</h3>
+            <p className="text-[14px] text-center text-[#6B7280] mb-4">
+              You are selecting a vehicle that is <strong className="text-[#E10600]">NOT assigned to you</strong>.
+            </p>
+            <div className="bg-[#FEF3C7] border border-[#FDE68A] rounded-xl p-3 mb-4">
+              <p className="text-[13px] text-[#92400E] text-center">
+                This fill will require <strong>owner approval</strong> before it is recorded in the system. The owner will be notified.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setShowVehicleWarning(false); setPendingVehicleSelection('') }}
+                className="flex-1 h-[48px] rounded-xl bg-[#F5F6F8] text-[#6B7280] font-medium text-[14px]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setForm(f => ({...f, vehicleId: pendingVehicleSelection}))
+                  setShowVehicleWarning(false)
+                  setPendingVehicleSelection('')
+                }}
+                className="flex-1 h-[48px] rounded-xl bg-[#E10600] text-white font-medium text-[14px]"
+              >
+                Continue Anyway
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   )
@@ -1754,7 +1809,57 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                   <p className="font-medium text-[14px] mb-1 text-[#111827]">{alert.event}</p>
                   <p className="text-[12px] text-[#6B7280]">{alert.user} • {new Date(alert.time).toLocaleString()}</p>
                 </div>
-                <div className="flex gap-1">
+                <div className="flex gap-1 flex-wrap">
+                  {alert.type === 'vehicle_override' && (
+                    <button
+                      onClick={() => {
+                        const allFills = storage.getFills()
+                        const pendingFill = allFills.find(f => f.pendingVehicleApproval && f.driverId === alert.user && new Date(f.time).getTime() > new Date(alert.time).getTime() - 3600000)
+                        if (pendingFill) {
+                          const updatedFills = allFills.map(f => f.id === pendingFill.id ? { ...f, pendingVehicleApproval: false } : f)
+                          storage.saveFills(updatedFills)
+                          const sheetPayload = {
+                            action: 'addFill',
+                            id: pendingFill.id,
+                            vehicleId: pendingFill.vehicleId,
+                            driverId: pendingFill.driverId,
+                            time: pendingFill.time,
+                            station: pendingFill.station,
+                            kgs: pendingFill.kgs,
+                            rate: pendingFill.rate,
+                            total: pendingFill.total,
+                            videoUrl: pendingFill.videoUrl,
+                            pumpPhotoUrl: pendingFill.pumpPhotoUrl,
+                            receiptPhotoUrl: pendingFill.receiptPhotoUrl,
+                            odoPhotoUrl: pendingFill.odoPhotoUrl,
+                            pumpGPS: pendingFill.pumpGPS ? `${pendingFill.pumpGPS.lat},${pendingFill.pumpGPS.lng}` : '',
+                            receiptGPS: pendingFill.receiptGPS ? `${pendingFill.receiptGPS.lat},${pendingFill.receiptGPS.lng}` : '',
+                            odoGPS: pendingFill.odoGPS ? `${pendingFill.odoGPS.lat},${pendingFill.odoGPS.lng}` : '',
+                            odoReading: pendingFill.odoReading,
+                            distanceDiff: pendingFill.distanceDiff,
+                            mismatch: pendingFill.mismatch,
+                            fuelDropPercent: pendingFill.fuelDropPercent,
+                            ownerId: pendingFill.ownerId,
+                            verified: pendingFill.verified,
+                            pendingVehicleApproval: false,
+                          }
+                          fetch(APPS_SCRIPT_URL, {
+                            method: 'POST',
+                            mode: 'cors',
+                            redirect: 'follow',
+                            headers: {'Content-Type': 'text/plain;charset=utf-8'},
+                            body: JSON.stringify(sheetPayload),
+                          }).catch(() => {})
+                        }
+                        const allAlerts = storage.getAlerts()
+                        storage.saveAlerts(allAlerts.map(a => a.id === alert.id ? { ...a, resolved: true } : a))
+                        window.location.reload()
+                      }}
+                      className="text-[11px] px-2.5 py-1 rounded-lg bg-[#10B981] hover:bg-[#059669] transition-colors text-white font-medium"
+                    >
+                      Approve Fill
+                    </button>
+                  )}
                   {alert.type === 'vehicle_override' && (
                     <button onClick={() => setTab('fills')} className="text-[11px] px-2.5 py-1 rounded-lg bg-white hover:bg-[#F5F6F8] transition-colors text-[#E10600]">
                       View in Fills

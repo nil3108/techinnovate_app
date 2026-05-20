@@ -94,6 +94,7 @@ export const googleSync = {
         fuelDropPercent: fill.fuelDropPercent,
         ownerId: fill.ownerId,
         verified: fill.verified,
+        pendingVehicleApproval: fill.pendingVehicleApproval || false,
       }
       
       console.log('Saving fill to Sheets:', payload.id, payload.kgs + 'kg')
