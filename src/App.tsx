@@ -1516,8 +1516,8 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
       {tab === 'fills' && (
         <div className="space-y-2">
           {fills.slice().reverse().map(fill => {
-            const v = vehicles.find(veh => veh.id === fill.vehicleId)
-            const d = drivers.find(drv => drv.id === fill.driverId)
+            const v = vehicles.find(veh => String(veh.id) === String(fill.vehicleId) || veh.plate === fill.vehicleId)
+            const d = drivers.find(drv => String(drv.id) === String(fill.driverId))
             return (
               <div key={fill.id} className="p-4 rounded-2xl bg-white border border-[#E2E6EB] shadow-sm">
                 <div className="flex items-start justify-between mb-2">
@@ -1573,8 +1573,9 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                   {fill.pendingVehicleApproval && (
                     <button
                       onClick={() => {
-                        const veh = vehicles.find(v => String(v.id) === String(fill.vehicleId))
+                        const veh = vehicles.find(v => String(v.id) === String(fill.vehicleId) || v.plate === fill.vehicleId)
                         const vehPlate = veh ? veh.plate : fill.vehicleId
+                        console.log('[Approve-Fills] vehicle:', vehPlate, 'fill.vehicleId:', fill.vehicleId)
                         const updated = fills.map(f => f.id === fill.id ? { ...f, pendingVehicleApproval: false } : f)
                         storage.saveFills(updated)
                         const approved = updated.find(f => f.id === fill.id)
@@ -1604,15 +1605,22 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                             verified: approved.verified,
                             pendingVehicleApproval: false,
                           }
-                          console.log('Approving fill from fills tab:', sheetPayload)
+                          console.log('[Approve-Fills] Sending to sheets:', sheetPayload)
                           fetch(APPS_SCRIPT_URL, {
                             method: 'POST',
                             mode: 'cors',
                             redirect: 'follow',
                             headers: {'Content-Type': 'text/plain;charset=utf-8'},
                             body: JSON.stringify(sheetPayload),
-                          }).then(r => r.text()).then(t => { console.log('Sheet sync response:', t.substring(0,100)); window.location.reload() }).catch(() => { window.location.reload() })
+                          }).then(r => r.text()).then(t => {
+                            console.log('[Approve-Fills] Sheet response:', t)
+                            window.location.reload()
+                          }).catch(e => {
+                            console.error('[Approve-Fills] Sheet error:', e)
+                            window.location.reload()
+                          })
                         } else {
+                          console.log('[Approve-Fills] No approved fill found!')
                           window.location.reload()
                         }
                       }}
@@ -1856,10 +1864,13 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                       onClick={() => {
                         const allFills = storage.getFills()
                         const vehicles = storage.getVehicles()
-                        const pendingFill = allFills.find(f => f.pendingVehicleApproval && f.driverId === alert.user)
+                        console.log('[Approve] Looking for pending fill. alert.user:', alert.user)
+                        console.log('[Approve] All fills:', allFills.map(f => ({ id: f.id, driverId: f.driverId, pending: f.pendingVehicleApproval })))
+                        const pendingFill = allFills.find(f => f.pendingVehicleApproval === true || (f.pendingVehicleApproval as any) === 'true')
                         if (pendingFill) {
                           const veh = vehicles.find(v => String(v.id) === String(pendingFill.vehicleId))
                           const vehPlate = veh ? veh.plate : pendingFill.vehicleId
+                          console.log('[Approve] Found pending fill:', pendingFill.id, 'vehicle:', vehPlate)
                           const updatedFills = allFills.map(f => f.id === pendingFill.id ? { ...f, pendingVehicleApproval: false } : f)
                           storage.saveFills(updatedFills)
                           const sheetPayload = {
@@ -1887,20 +1898,26 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                             verified: pendingFill.verified,
                             pendingVehicleApproval: false,
                           }
-                          console.log('Approving fill and syncing to sheets:', sheetPayload)
+                          console.log('[Approve] Sending to sheets:', sheetPayload)
                           fetch(APPS_SCRIPT_URL, {
                             method: 'POST',
                             mode: 'cors',
                             redirect: 'follow',
                             headers: {'Content-Type': 'text/plain;charset=utf-8'},
                             body: JSON.stringify(sheetPayload),
-                          }).then(r => r.text()).then(t => console.log('Sheet sync response:', t.substring(0,100))).catch(e => console.error('Sheet sync error:', e))
+                          }).then(r => r.text()).then(t => {
+                            console.log('[Approve] Sheet response:', t)
+                            window.location.reload()
+                          }).catch(e => {
+                            console.error('[Approve] Sheet error:', e)
+                            window.location.reload()
+                          })
                         } else {
-                          console.log('No pending fill found for alert user:', alert.user)
+                          console.log('[Approve] No pending fill found!')
+                          window.location.reload()
                         }
                         const allAlerts = storage.getAlerts()
                         storage.saveAlerts(allAlerts.map(a => a.id === alert.id ? { ...a, resolved: true } : a))
-                        window.location.reload()
                       }}
                       className="text-[11px] px-2.5 py-1 rounded-lg bg-[#10B981] hover:bg-[#059669] transition-colors text-white font-medium"
                     >
