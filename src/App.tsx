@@ -35,11 +35,7 @@ const DRIVER_KEYS = { id: 'id', name: 'name', code: 'code', assignedVehicleId: '
 const FILL_KEYS = { id: 'id', vehicleId: 'vehicleId', driverId: 'driverId', time: 'time', station: 'station', kgs: 'kgs', rate: 'rate', total: 'total', videoUrl: 'videoUrl', pumpPhotoUrl: 'pumpPhotoUrl', receiptPhotoUrl: 'receiptPhotoUrl', odoPhotoUrl: 'odoPhotoUrl', pumpGPS: 'pumpGPS', receiptGPS: 'receiptGPS', odoGPS: 'odoGPS', odoReading: 'odoReading', distanceDiff: 'distanceDiff', mismatch: 'mismatch', fuelDropPercent: 'fuelDropPercent', ownerId: 'ownerId', verified: 'verified' }
 const OWNER_KEYS = { id: 'id', name: 'name', email: 'email', phone: 'phone', business: 'business', password: 'password', status: 'status', createdAt: 'createdAt' }
 
-// Resolve a driver's assigned vehicle supporting both plate and ID lookups
-function findAssignedVehicle(vehicles: Vehicle[], assignedVehicleId: string | null | undefined): Vehicle | undefined {
-  if (!assignedVehicleId) return undefined
-  return vehicles.find(v => v.plate === assignedVehicleId) || vehicles.find(v => String(v.id) === String(assignedVehicleId))
-}
+
 
 export default function App() {
   const [view, setView] = useState<View>('welcome')
@@ -466,7 +462,7 @@ function DriverDashboard({ lang, session, setView }: { lang: Language; session: 
   const drivers = storage.getDrivers()
   const driver = drivers.find(d => String(d.id) === String(session.userId))
   const vehicles = storage.getVehicles()
-  const vehicle = findAssignedVehicle(vehicles, driver?.assignedVehicleId)
+  const vehicle = vehicles.find(v => String(v.id) === String(driver?.assignedVehicleId))
   const fills = storage.getFills().filter(f => f.driverId === session.userId)
 
   return (
@@ -819,7 +815,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
   const vehicles = storage.getVehicles()
   const drivers = storage.getDrivers()
   const driver = drivers.find(d => String(d.id) === String(session.userId))
-  const defaultVeh = findAssignedVehicle(vehicles, driver?.assignedVehicleId)
+  const defaultVeh = driver?.assignedVehicleId ? vehicles.find(v => String(v.id) === String(driver.assignedVehicleId)) : null
 
   const [form, setForm] = useState({
     vehicleId: defaultVeh?.id || '',
@@ -885,7 +881,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
       distanceDiff, mismatch, fuelDropPercent,
       ownerId: session.ownerId,
       verified: false,
-      pendingVehicleApproval: driver?.assignedVehicleId && vehicle && vehicle.plate !== driver.assignedVehicleId && String(vehicle.id) !== String(driver.assignedVehicleId) ? true : false,
+      pendingVehicleApproval: driver?.assignedVehicleId && vehicle && String(vehicle.id) !== String(driver.assignedVehicleId) ? true : false,
     }
     const pendingApproval = fill.pendingVehicleApproval
 
@@ -1105,7 +1101,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
                       <option value="">Select vehicle</option>
                       {vehicles.map(v => <option key={v.id} value={v.id}>{v.plate}</option>)}
                     </select>
-                    {driver?.assignedVehicleId && form.vehicleId && (() => { const sv = vehicles.find(v => String(v.id) === String(form.vehicleId)); return sv && sv.plate !== driver.assignedVehicleId && String(sv.id) !== String(driver.assignedVehicleId) })() && (
+                    {driver?.assignedVehicleId && form.vehicleId && (() => { const sv = vehicles.find(v => String(v.id) === String(form.vehicleId)); return sv && String(sv.id) !== String(driver.assignedVehicleId) })() && (
                       <p className="text-[11px] text-[#E10600] mt-1 flex items-center gap-1">
                         <AlertTriangle className="w-3 h-3" /> Not your assigned vehicle — owner approval required
                       </p>
@@ -1396,7 +1392,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
             <h3 className="text-[13px] font-semibold text-[#6B7280] uppercase tracking-wider mb-3">Drivers</h3>
             <div className="space-y-2">
               {drivers.map(d => {
-                const v = findAssignedVehicle(vehicles, d.assignedVehicleId)
+                const v = vehicles.find(v => String(v.id) === String(d.assignedVehicleId))
                 return (
                   <div key={d.id} className="p-3.5 rounded-xl bg-white border border-[#E2E6EB] flex items-center justify-between">
                     <div>
@@ -1406,7 +1402,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                         <button onClick={() => { setEditingDriver(d); setEditCode(d.code) }} className="ml-1.5 p-0.5 hover:bg-[#F5F6F8] rounded inline-flex align-middle">
                           <svg className="w-3 h-3 text-[#9CA3AF]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                         </button> • {v?.plate || 'No vehicle'}
-                        <button onClick={() => { setEditingDriverVehicle(d); setEditVehicleId(findAssignedVehicle(vehicles, d.assignedVehicleId)?.id || '') }} className="ml-1 p-0.5 hover:bg-[#F5F6F8] rounded inline-flex align-middle">
+                        <button onClick={() => { setEditingDriverVehicle(d); setEditVehicleId(String(d.assignedVehicleId || '')) }} className="ml-1 p-0.5 hover:bg-[#F5F6F8] rounded inline-flex align-middle">
                           <svg className="w-3 h-3 text-[#9CA3AF]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                         </button></p>
                     </div>
@@ -1559,7 +1555,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
               </button>
             </div>
           ) : drivers.map(d => {
-            const v = findAssignedVehicle(vehicles, d.assignedVehicleId)
+            const v = vehicles.find(v => String(v.id) === String(d.assignedVehicleId))
             const dFills = fills.filter(f => f.driverId === d.id)
             return (
               <div key={d.id} className="p-4 rounded-2xl bg-white border border-[#E2E6EB] shadow-sm">
@@ -1837,11 +1833,10 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
             <div className="flex gap-2 justify-end">
               <button onClick={() => setEditingDriverVehicle(null)} className="px-4 py-2 rounded-xl bg-[#F5F6F8] text-[#6B7280] text-[13px] font-medium">Cancel</button>
               <button onClick={() => {
-                const veh = vehicles.find(v => String(v.id) === String(editVehicleId))
-                const plate = veh?.plate || null
-                const updated = drivers.map(d => String(d.id) === String(editingDriverVehicle.id) ? { ...d, assignedVehicleId: plate } : d)
+                const vehicleId = editVehicleId || null
+                const updated = drivers.map(d => String(d.id) === String(editingDriverVehicle.id) ? { ...d, assignedVehicleId: vehicleId } : d)
                 storage.saveDrivers(updated)
-                googleSync.updateDriver({ id: editingDriverVehicle.id, assignedVehicleId: plate }).catch(() => {})
+                googleSync.updateDriver({ id: editingDriverVehicle.id, assignedVehicleId: vehicleId }).catch(() => {})
                 setEditingDriverVehicle(null)
               }} className="px-4 py-2 rounded-xl bg-[#E10600] text-white text-[13px] font-medium">Save</button>
             </div>
@@ -1859,13 +1854,12 @@ function AddDriverModal({ lang, ownerId, onClose }: { lang: Language; ownerId: s
   const [vehicleId, setVehicleId] = useState('')
 
   const handleSave = () => {
-    const veh = vehicles.find(v => String(v.id) === String(vehicleId))
-    const plate = veh?.plate || null
+    const vehicleIdVal = vehicleId || null
     const newDriver = {
       id: 'drv' + Date.now(),
       name,
       code,
-      assignedVehicleId: plate,
+      assignedVehicleId: vehicleIdVal,
       ownerId,
       status: 'active' as const,
       createdAt: new Date().toISOString(),
@@ -1879,7 +1873,7 @@ function AddDriverModal({ lang, ownerId, onClose }: { lang: Language; ownerId: s
       id: newDriver.id,
       name: newDriver.name,
       code: newDriver.code,
-      assignedVehicleId: plate,
+      assignedVehicleId: vehicleIdVal,
       ownerId: newDriver.ownerId,
     }).catch(() => {})
     
