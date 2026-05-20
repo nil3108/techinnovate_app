@@ -1810,12 +1810,12 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
             />
             <div className="flex gap-2 justify-end">
               <button onClick={() => setEditingDriver(null)} className="px-4 py-2 rounded-xl bg-[#F5F6F8] text-[#6B7280] text-[13px] font-medium">Cancel</button>
-              <button onClick={async () => {
+              <button onClick={() => {
                 if (!editCode.trim()) return
                 const updated = drivers.map(d => d.id === editingDriver.id ? { ...d, code: editCode.trim() } : d)
                 storage.saveDrivers(updated)
-                await googleSync.updateDriver({ id: editingDriver.id, code: editCode.trim() })
-                window.location.reload()
+                googleSync.updateDriver({ id: editingDriver.id, code: editCode.trim() }).catch(() => {})
+                setEditingDriver(null)
               }} className="px-4 py-2 rounded-xl bg-[#E10600] text-white text-[13px] font-medium">Save</button>
             </div>
           </div>
@@ -1836,13 +1836,13 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
             </select>
             <div className="flex gap-2 justify-end">
               <button onClick={() => setEditingDriverVehicle(null)} className="px-4 py-2 rounded-xl bg-[#F5F6F8] text-[#6B7280] text-[13px] font-medium">Cancel</button>
-              <button onClick={async () => {
+              <button onClick={() => {
                 const veh = vehicles.find(v => v.id === editVehicleId)
                 const plate = veh?.plate || null
                 const updated = drivers.map(d => d.id === editingDriverVehicle.id ? { ...d, assignedVehicleId: plate } : d)
                 storage.saveDrivers(updated)
-                await googleSync.updateDriver({ id: editingDriverVehicle.id, assignedVehicleId: plate })
-                window.location.reload()
+                googleSync.updateDriver({ id: editingDriverVehicle.id, assignedVehicleId: plate }).catch(() => {})
+                setEditingDriverVehicle(null)
               }} className="px-4 py-2 rounded-xl bg-[#E10600] text-white text-[13px] font-medium">Save</button>
             </div>
           </div>
@@ -1858,7 +1858,7 @@ function AddDriverModal({ lang, ownerId, onClose }: { lang: Language; ownerId: s
   const vehicles = storage.getVehicles().filter(v => v.ownerId === ownerId)
   const [vehicleId, setVehicleId] = useState('')
 
-  const handleSave = async () => {
+  const handleSave = () => {
     const veh = vehicles.find(v => v.id === vehicleId)
     const plate = veh?.plate || null
     const newDriver = {
@@ -1875,16 +1875,15 @@ function AddDriverModal({ lang, ownerId, onClose }: { lang: Language; ownerId: s
     drivers.push(newDriver)
     storage.saveDrivers(drivers)
     
-    await googleSync.addDriver({
+    googleSync.addDriver({
       id: newDriver.id,
       name: newDriver.name,
       code: newDriver.code,
       assignedVehicleId: plate,
       ownerId: newDriver.ownerId,
-    })
+    }).catch(() => {})
     
     onClose()
-    window.location.reload()
   }
 
   return (
