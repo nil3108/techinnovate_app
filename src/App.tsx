@@ -813,193 +813,139 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
   const handleSubmit = async () => {
     if (isSubmitting) return
     setIsSubmitting(true)
-    try {
-      const vehicle = vehicles.find(v => v.id === form.vehicleId || v.id === String(form.vehicleId))
-      if (!vehicle) {
-        console.log('Vehicle not found, form.vehicleId:', form.vehicleId, 'vehicles:', vehicles)
-        if (!form.vehicleId) {
-          alert('Please select a vehicle')
-          return
+
+    const vehicle = vehicles.find(v => v.id === form.vehicleId || v.id === String(form.vehicleId))
+    if (!vehicle) { setIsSubmitting(false); alert('Please select a vehicle'); return }
+
+    let distanceDiff = 0
+    let mismatch = false
+    if (captures.pump?.gps && captures.receipt?.gps) {
+      distanceDiff = calculateDistance(
+        captures.pump.gps.lat, captures.pump.gps.lng,
+        captures.receipt.gps.lat, captures.receipt.gps.lng
+      )
+      mismatch = distanceDiff > 500
+    }
+
+    const fills = storage.getFills().filter(f => f.vehicleId === form.vehicleId)
+    const lastFill = fills.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())[0]
+    let fuelDropPercent = 0
+    if (lastFill) {
+      const expectedKgs = vehicle.capacity * 0.8
+      fuelDropPercent = ((expectedKgs - parseFloat(form.kgs)) / expectedKgs) * 100
+    }
+
+    const fillId = 'fill' + Date.now()
+    const fillDate = new Date().toISOString().split('T')[0]
+    const folderName = `${vehicle.plate}_${fillDate}`
+    const timestamp = Date.now()
+
+    // Save fill to localStorage (instant)
+    const fill: Fill = {
+      id: fillId,
+      vehicleId: form.vehicleId,
+      driverId: session.userId,
+      time: new Date().toISOString(),
+      station: form.station,
+      kgs: parseFloat(form.kgs),
+      rate: parseFloat(form.rate),
+      total,
+      videoUrl: '', pumpPhotoUrl: '', receiptPhotoUrl: '', odoPhotoUrl: '',
+      pumpGPS: captures.pump?.gps || null,
+      receiptGPS: captures.receipt?.gps || null,
+      odoGPS: captures.odo?.gps || null,
+      odoReading: parseInt(form.odoReading),
+      distanceDiff, mismatch, fuelDropPercent,
+      ownerId: session.ownerId,
+      verified: false,
+      pendingVehicleApproval: driver?.assignedVehicleId && form.vehicleId !== driver.assignedVehicleId ? true : false,
+    }
+    const pendingApproval = fill.pendingVehicleApproval
+
+    const existingFills = storage.getFills()
+    storage.saveFills([...existingFills, fill])
+
+    // Redirect instantly (driver must see dash immediately)
+    setView('driver-dash')
+    setIsSubmitting(false)
+
+    // --- Background: upload media, update fill URLs, sync to Sheets/create alerts ---
+    ;(async () => {
+      try {
+        const uploadResults: {type: string; url: string}[] = []
+        const uploads = [
+          captures.video && googleSync.uploadMedia(captures.video.blob, `video_${timestamp}.webm`, folderName).then(url => ({type: 'video', url})).catch(() => ({type: 'video', url: ''})),
+          captures.pump && googleSync.uploadMedia(captures.pump.blob, `pump_${timestamp}.jpg`, folderName).then(url => ({type: 'pump', url})).catch(() => ({type: 'pump', url: ''})),
+          captures.receipt && googleSync.uploadMedia(captures.receipt.blob, `receipt_${timestamp}.jpg`, folderName).then(url => ({type: 'receipt', url})).catch(() => ({type: 'receipt', url: ''})),
+          captures.odo && googleSync.uploadMedia(captures.odo.blob, `odo_${timestamp}.jpg`, folderName).then(url => ({type: 'odo', url})).catch(() => ({type: 'odo', url: ''})),
+        ].filter(Boolean) as Promise<{type: string; url: string}>[]
+
+        if (uploads.length > 0) {
+          const results = await Promise.all(uploads)
+          uploadResults.push(...results)
         }
-      }
-      
-      if (!vehicle) return
-      
-      let distanceDiff = 0
-      let mismatch = false
-      if (captures.pump?.gps && captures.receipt?.gps) {
-        distanceDiff = calculateDistance(
-          captures.pump.gps.lat, captures.pump.gps.lng,
-          captures.receipt.gps.lat, captures.receipt.gps.lng
-        )
-        mismatch = distanceDiff > 500
-      }
+        const urls = Object.fromEntries(uploadResults.map(r => [r.type, r.url]))
 
-      const fills = storage.getFills().filter(f => f.vehicleId === form.vehicleId)
-      const lastFill = fills.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())[0]
-      let fuelDropPercent = 0
-      if (lastFill && vehicle) {
-        const expectedKgs = vehicle.capacity * 0.8
-        fuelDropPercent = ((expectedKgs - parseFloat(form.kgs)) / expectedKgs) * 100
-      }
+        const updatedFill = { ...fill, videoUrl: urls.video || '', pumpPhotoUrl: urls.pump || '', receiptPhotoUrl: urls.receipt || '', odoPhotoUrl: urls.odo || '' }
+        const allFills = storage.getFills().map(f => f.id === fillId ? updatedFill : f)
+        storage.saveFills(allFills)
 
-      const fillId = 'fill' + Date.now()
-      const fillDate = new Date().toISOString().split('T')[0]
-      const folderName = `${vehicle.plate}_${fillDate}`
-      const timestamp = Date.now()
-      
-      // Create fill with empty URLs first, then upload media in background
-      const fill: Fill = {
-        id: fillId,
-        vehicleId: form.vehicleId,
-        driverId: session.userId,
-        time: new Date().toISOString(),
-        station: form.station,
-        kgs: parseFloat(form.kgs),
-        rate: parseFloat(form.rate),
-        total,
-        videoUrl: '',
-        pumpPhotoUrl: '',
-        receiptPhotoUrl: '',
-        odoPhotoUrl: '',
-        pumpGPS: captures.pump?.gps || null,
-        receiptGPS: captures.receipt?.gps || null,
-        odoGPS: captures.odo?.gps || null,
-        odoReading: parseInt(form.odoReading),
-        distanceDiff,
-        mismatch,
-        fuelDropPercent,
-        ownerId: session.ownerId,
-        verified: false,
-        pendingVehicleApproval: driver?.assignedVehicleId && form.vehicleId !== driver.assignedVehicleId ? true : false,
-      }
+        if (!pendingApproval) {
+          const sheetPayload = {
+            action: 'addFill',
+            id: updatedFill.id,
+            vehicleId: updatedFill.vehicleId,
+            driverId: updatedFill.driverId,
+            time: updatedFill.time,
+            station: updatedFill.station,
+            kgs: updatedFill.kgs,
+            rate: updatedFill.rate,
+            total: updatedFill.total,
+            videoUrl: updatedFill.videoUrl,
+            pumpPhotoUrl: updatedFill.pumpPhotoUrl,
+            receiptPhotoUrl: updatedFill.receiptPhotoUrl,
+            odoPhotoUrl: updatedFill.odoPhotoUrl,
+            pumpGPS: updatedFill.pumpGPS ? `${updatedFill.pumpGPS.lat},${updatedFill.pumpGPS.lng}` : '',
+            receiptGPS: updatedFill.receiptGPS ? `${updatedFill.receiptGPS.lat},${updatedFill.receiptGPS.lng}` : '',
+            odoGPS: updatedFill.odoGPS ? `${updatedFill.odoGPS.lat},${updatedFill.odoGPS.lng}` : '',
+            odoReading: updatedFill.odoReading,
+            distanceDiff: updatedFill.distanceDiff,
+            mismatch: updatedFill.mismatch,
+            fuelDropPercent: updatedFill.fuelDropPercent,
+            ownerId: updatedFill.ownerId,
+            verified: updatedFill.verified,
+          }
+          fetch(APPS_SCRIPT_URL, {
+            method: 'POST',
+            mode: 'cors',
+            redirect: 'follow',
+            headers: {'Content-Type': 'text/plain;charset=utf-8'},
+            body: JSON.stringify(sheetPayload),
+          }).then(r => r.text()).then(t => console.log('Sheet sync response:', t.substring(0,100))).catch(e => console.error('Sheet sync error:', e))
+        }
 
-      const pendingApproval = fill.pendingVehicleApproval
-
-      // Save to localStorage immediately (instant)
-      const existingFills = storage.getFills()
-      storage.saveFills([...existingFills, fill])
-
-      // Redirect instantly
-      setView('driver-dash')
-
-      // Upload media to Drive in background (no blocking)
-      const uploadResults: {type: string; url: string}[] = []
-      const uploads = [
-        captures.video && googleSync.uploadMedia(captures.video.blob, `video_${timestamp}.webm`, folderName).then(url => ({type: 'video', url})).catch(() => ({type: 'video', url: ''})),
-        captures.pump && googleSync.uploadMedia(captures.pump.blob, `pump_${timestamp}.jpg`, folderName).then(url => ({type: 'pump', url})).catch(() => ({type: 'pump', url: ''})),
-        captures.receipt && googleSync.uploadMedia(captures.receipt.blob, `receipt_${timestamp}.jpg`, folderName).then(url => ({type: 'receipt', url})).catch(() => ({type: 'receipt', url: ''})),
-        captures.odo && googleSync.uploadMedia(captures.odo.blob, `odo_${timestamp}.jpg`, folderName).then(url => ({type: 'odo', url})).catch(() => ({type: 'odo', url: ''})),
-      ].filter(Boolean)
-      
-      if (uploads.length > 0) {
-        const results = await Promise.all(uploads)
-        uploadResults.push(...results)
-      }
-      const urls = Object.fromEntries(uploadResults.map(r => [r.type, r.url]))
-
-      // Update fill with Drive URLs in localStorage + Sheets
-      const updatedFill = {
-        ...fill,
-        videoUrl: urls.video || '',
-        pumpPhotoUrl: urls.pump || '',
-        receiptPhotoUrl: urls.receipt || '',
-        odoPhotoUrl: urls.odo || '',
-      }
-      const allFills = storage.getFills().map(f => f.id === fillId ? updatedFill : f)
-      storage.saveFills(allFills)
-
-      if (!pendingApproval) {
-        // Sync to Sheets in background (direct call, avoid saveFill's localStorage duplicate)
-        const sheetPayload = {
-        action: 'addFill',
-        id: updatedFill.id,
-        vehicleId: updatedFill.vehicleId,
-        driverId: updatedFill.driverId,
-        time: updatedFill.time,
-        station: updatedFill.station,
-        kgs: updatedFill.kgs,
-        rate: updatedFill.rate,
-        total: updatedFill.total,
-        videoUrl: updatedFill.videoUrl,
-        pumpPhotoUrl: updatedFill.pumpPhotoUrl,
-        receiptPhotoUrl: updatedFill.receiptPhotoUrl,
-        odoPhotoUrl: updatedFill.odoPhotoUrl,
-        pumpGPS: updatedFill.pumpGPS ? `${updatedFill.pumpGPS.lat},${updatedFill.pumpGPS.lng}` : '',
-        receiptGPS: updatedFill.receiptGPS ? `${updatedFill.receiptGPS.lat},${updatedFill.receiptGPS.lng}` : '',
-        odoGPS: updatedFill.odoGPS ? `${updatedFill.odoGPS.lat},${updatedFill.odoGPS.lng}` : '',
-        odoReading: updatedFill.odoReading,
-        distanceDiff: updatedFill.distanceDiff,
-        mismatch: updatedFill.mismatch,
-        fuelDropPercent: updatedFill.fuelDropPercent,
-        ownerId: updatedFill.ownerId,
-        verified: updatedFill.verified,
-      }
-      fetch(APPS_SCRIPT_URL, {
-        method: 'POST',
-        mode: 'cors',
-        redirect: 'follow',
-        headers: {'Content-Type': 'text/plain;charset=utf-8'},
-        body: JSON.stringify(sheetPayload),
-      }).then(r => r.text()).then(t => console.log('Sheet sync response:', t.substring(0,100))).catch(e => console.error('Sheet sync error:', e))
-      }
-
-      // Create alerts
-      if (mismatch || fuelDropPercent > 20) {
-        const alerts = storage.getAlerts()
+        // Create alerts
+        const alertsList = storage.getAlerts()
         if (mismatch) {
-          alerts.push({
-            id: 'alert' + Date.now(),
-            time: new Date().toISOString(),
-            event: `Location mismatch: ${Math.round(distanceDiff)}m`,
-            user: session.name,
-            type: 'location_mismatch',
-            ownerId: session.ownerId,
-            resolved: false,
-          })
+          alertsList.push({ id: 'alert' + Date.now(), time: new Date().toISOString(), event: `Location mismatch: ${Math.round(distanceDiff)}m`, user: session.name, type: 'location_mismatch', ownerId: session.ownerId, resolved: false })
         }
         if (fuelDropPercent > 20) {
-          alerts.push({
-            id: 'alert' + Date.now() + 1,
-            time: new Date().toISOString(),
-            event: `Fuel drop ${fuelDropPercent.toFixed(1)}%`,
-            user: session.name,
-            type: 'fuel_drop',
-            ownerId: session.ownerId,
-            resolved: false,
-          })
+          alertsList.push({ id: 'alert' + Date.now() + 1, time: new Date().toISOString(), event: `Fuel drop ${fuelDropPercent.toFixed(1)}%`, user: session.name, type: 'fuel_drop', ownerId: session.ownerId, resolved: false })
         }
-        storage.saveAlerts(alerts)
+        if (pendingApproval) {
+          alertsList.push({ id: 'alert' + Date.now() + 2, time: new Date().toISOString(), event: `Vehicle override: ${driver?.name || session.name} used ${vehicle.plate} instead of assigned vehicle`, user: session.name, type: 'vehicle_override', ownerId: session.ownerId, resolved: false })
+        }
+        if (mismatch || fuelDropPercent > 20 || pendingApproval) {
+          storage.saveAlerts(alertsList)
+        }
+
+        // Update vehicle odo
+        const allVehicles = storage.getVehicles()
+        storage.saveVehicles(allVehicles.map(v => v.id === form.vehicleId ? { ...v, currentOdo: parseInt(form.odoReading) } : v))
+      } catch (e) {
+        console.error('Background sync error:', e)
       }
-
-      // Vehicle override alert
-      if (pendingApproval) {
-        const alerts = storage.getAlerts()
-        alerts.push({
-          id: 'alert' + Date.now() + 2,
-          time: new Date().toISOString(),
-          event: `Vehicle override: ${driver?.name || session.name} used ${vehicle?.plate || 'other'} instead of assigned vehicle`,
-          user: session.name,
-          type: 'vehicle_override',
-          ownerId: session.ownerId,
-          resolved: false,
-        })
-        storage.saveAlerts(alerts)
-      }
-
-      // Update vehicle odo
-      const allVehicles = storage.getVehicles()
-      const updatedVehicles = allVehicles.map(v => 
-        v.id === form.vehicleId ? { ...v, currentOdo: parseInt(form.odoReading) } : v
-      )
-      storage.saveVehicles(updatedVehicles)
-
-      console.log('Fill submitted + media uploaded in background')
-    } catch (error) {
-      console.error('Submit error:', error)
-    } finally {
-      setIsSubmitting(false)
-    }
+    })()
   }
 
   const steps = [
