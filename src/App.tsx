@@ -15,6 +15,32 @@ import { OwnerRegister } from './components/OwnerRegister'
 
 type View = 'welcome' | 'driver-login' | 'owner-login' | 'owner-register' | 'admin-login' | 'driver-dash' | 'owner-dash' | 'admin-dash' | 'wizard'
 
+// Normalize sheet column names (case-insensitive) to expected JS property keys
+function normalizeKeys(obj: any, expectedKeys: Record<string, string>): any {
+  if (!obj || typeof obj !== 'object') return obj
+  const result: any = {}
+  const lowerMap: Record<string, string> = {}
+  for (const [expected, actual] of Object.entries(expectedKeys)) {
+    lowerMap[expected.toLowerCase().replace(/[\s_-]/g, '')] = actual
+  }
+  for (const key of Object.keys(obj)) {
+    const normalized = lowerMap[key.toLowerCase().replace(/[\s_-]/g, '')]
+    result[normalized || key] = obj[key]
+  }
+  return result
+}
+
+const VEHICLE_KEYS = { id: 'id', plate: 'plate', model: 'model', initialOdo: 'initialOdo', currentOdo: 'currentOdo', capacity: 'capacity', ownerId: 'ownerId', status: 'status' }
+const DRIVER_KEYS = { id: 'id', name: 'name', code: 'code', assignedVehicleId: 'assignedVehicleId', ownerId: 'ownerId', status: 'status', createdAt: 'createdAt' }
+const FILL_KEYS = { id: 'id', vehicleId: 'vehicleId', driverId: 'driverId', time: 'time', station: 'station', kgs: 'kgs', rate: 'rate', total: 'total', videoUrl: 'videoUrl', pumpPhotoUrl: 'pumpPhotoUrl', receiptPhotoUrl: 'receiptPhotoUrl', odoPhotoUrl: 'odoPhotoUrl', pumpGPS: 'pumpGPS', receiptGPS: 'receiptGPS', odoGPS: 'odoGPS', odoReading: 'odoReading', distanceDiff: 'distanceDiff', mismatch: 'mismatch', fuelDropPercent: 'fuelDropPercent', ownerId: 'ownerId', verified: 'verified' }
+const OWNER_KEYS = { id: 'id', name: 'name', email: 'email', phone: 'phone', business: 'business', password: 'password', status: 'status', createdAt: 'createdAt' }
+
+// Resolve a driver's assigned vehicle supporting both plate and ID lookups
+function findAssignedVehicle(vehicles: Vehicle[], assignedVehicleId: string | null | undefined): Vehicle | undefined {
+  if (!assignedVehicleId) return undefined
+  return vehicles.find(v => v.plate === assignedVehicleId) || vehicles.find(v => String(v.id) === String(assignedVehicleId))
+}
+
 export default function App() {
   const [view, setView] = useState<View>('welcome')
   const [lang, setLang] = useState<Language>('en')
@@ -50,12 +76,12 @@ export default function App() {
         
         if (data?.success) {
           console.log('Drivers from sheet:', data.drivers)
-          // Only overwrite if sheet has actual data (preserve demo data if sheet is empty)
+          // Normalize keys from sheet (case-insensitive) and save
           if (data.drivers?.length > 0) {
-            storage.saveDrivers(data.drivers)
+            storage.saveDrivers(data.drivers.map((d: any) => normalizeKeys(d, DRIVER_KEYS)))
           }
           if (data.vehicles?.length > 0) {
-            storage.saveVehicles(data.vehicles)
+            storage.saveVehicles(data.vehicles.map((v: any) => normalizeKeys(v, VEHICLE_KEYS)))
           }
           if (data.fills?.length > 0) {
             console.log('Fill keys:', Object.keys(data.fills[0] || {}))
@@ -71,24 +97,25 @@ export default function App() {
               return null
             }
             const cleanFills = data.fills.map((f: any) => {
-              const id = f.id || f[' '] || 'fill_' + Date.now() + '_' + Math.random().toString(36).slice(2,8)
+              const nf = normalizeKeys(f, FILL_KEYS)
+              const id = nf.id || nf[' '] || 'fill_' + Date.now() + '_' + Math.random().toString(36).slice(2,8)
               return {
-                ...f,
+                ...nf,
                 id,
-                videoUrl: f.videoUrl && !f.videoUrl.startsWith('data:') ? f.videoUrl : '',
-                pumpPhotoUrl: f.pumpPhotoUrl && !f.pumpPhotoUrl.startsWith('data:') ? f.pumpPhotoUrl : '',
-                receiptPhotoUrl: f.receiptPhotoUrl && !f.receiptPhotoUrl.startsWith('data:') ? f.receiptPhotoUrl : '',
-                odoPhotoUrl: f.odoPhotoUrl && !f.odoPhotoUrl.startsWith('data:') ? f.odoPhotoUrl : '',
-                pumpGPS: parseGPS(f.pumpGPS),
-                receiptGPS: parseGPS(f.receiptGPS),
-                odoGPS: parseGPS(f.odoGPS),
+                videoUrl: nf.videoUrl && !nf.videoUrl.startsWith('data:') ? nf.videoUrl : '',
+                pumpPhotoUrl: nf.pumpPhotoUrl && !nf.pumpPhotoUrl.startsWith('data:') ? nf.pumpPhotoUrl : '',
+                receiptPhotoUrl: nf.receiptPhotoUrl && !nf.receiptPhotoUrl.startsWith('data:') ? nf.receiptPhotoUrl : '',
+                odoPhotoUrl: nf.odoPhotoUrl && !nf.odoPhotoUrl.startsWith('data:') ? nf.odoPhotoUrl : '',
+                pumpGPS: parseGPS(nf.pumpGPS),
+                receiptGPS: parseGPS(nf.receiptGPS),
+                odoGPS: parseGPS(nf.odoGPS),
               }
             })
             storage.saveFills(cleanFills)
             console.log('Cleaned fills sample:', cleanFills.slice(0,2).map((f: any) => ({id: f.id, video: f.videoUrl?.substring(0,60)})))
           }
-          if (data.owners) {
-            storage.saveOwners(data.owners)
+          if (data.owners?.length > 0) {
+            storage.saveOwners(data.owners.map((o: any) => normalizeKeys(o, OWNER_KEYS)))
           }
           setSyncKey(k => k + 1)
         } else {
@@ -439,7 +466,7 @@ function DriverDashboard({ lang, session, setView }: { lang: Language; session: 
   const drivers = storage.getDrivers()
   const driver = drivers.find(d => String(d.id) === String(session.userId))
   const vehicles = storage.getVehicles()
-  const vehicle = vehicles.find(v => v.plate === driver?.assignedVehicleId)
+  const vehicle = findAssignedVehicle(vehicles, driver?.assignedVehicleId)
   const fills = storage.getFills().filter(f => f.driverId === session.userId)
 
   return (
@@ -792,7 +819,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
   const vehicles = storage.getVehicles()
   const drivers = storage.getDrivers()
   const driver = drivers.find(d => String(d.id) === String(session.userId))
-  const defaultVeh = driver?.assignedVehicleId ? vehicles.find(v => v.plate === driver.assignedVehicleId) : null
+  const defaultVeh = findAssignedVehicle(vehicles, driver?.assignedVehicleId)
 
   const [form, setForm] = useState({
     vehicleId: defaultVeh?.id || '',
@@ -858,7 +885,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
       distanceDiff, mismatch, fuelDropPercent,
       ownerId: session.ownerId,
       verified: false,
-      pendingVehicleApproval: driver?.assignedVehicleId && vehicle?.plate !== driver.assignedVehicleId ? true : false,
+      pendingVehicleApproval: driver?.assignedVehicleId && vehicle && vehicle.plate !== driver.assignedVehicleId && String(vehicle.id) !== String(driver.assignedVehicleId) ? true : false,
     }
     const pendingApproval = fill.pendingVehicleApproval
 
@@ -1078,7 +1105,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
                       <option value="">Select vehicle</option>
                       {vehicles.map(v => <option key={v.id} value={v.id}>{v.plate}</option>)}
                     </select>
-                    {driver?.assignedVehicleId && form.vehicleId && vehicles.find(v => String(v.id) === String(form.vehicleId))?.plate !== driver.assignedVehicleId && (
+                    {driver?.assignedVehicleId && form.vehicleId && (() => { const sv = vehicles.find(v => String(v.id) === String(form.vehicleId)); return sv && sv.plate !== driver.assignedVehicleId && String(sv.id) !== String(driver.assignedVehicleId) })() && (
                       <p className="text-[11px] text-[#E10600] mt-1 flex items-center gap-1">
                         <AlertTriangle className="w-3 h-3" /> Not your assigned vehicle — owner approval required
                       </p>
@@ -1369,7 +1396,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
             <h3 className="text-[13px] font-semibold text-[#6B7280] uppercase tracking-wider mb-3">Drivers</h3>
             <div className="space-y-2">
               {drivers.map(d => {
-                const v = vehicles.find(veh => veh.plate === d.assignedVehicleId)
+                const v = findAssignedVehicle(vehicles, d.assignedVehicleId)
                 return (
                   <div key={d.id} className="p-3.5 rounded-xl bg-white border border-[#E2E6EB] flex items-center justify-between">
                     <div>
@@ -1379,7 +1406,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                         <button onClick={() => { setEditingDriver(d); setEditCode(d.code) }} className="ml-1.5 p-0.5 hover:bg-[#F5F6F8] rounded inline-flex align-middle">
                           <svg className="w-3 h-3 text-[#9CA3AF]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                         </button> • {v?.plate || 'No vehicle'}
-                        <button onClick={() => { setEditingDriverVehicle(d); setEditVehicleId(vehicles.find(x => x.plate === d.assignedVehicleId)?.id || '') }} className="ml-1 p-0.5 hover:bg-[#F5F6F8] rounded inline-flex align-middle">
+                        <button onClick={() => { setEditingDriverVehicle(d); setEditVehicleId(findAssignedVehicle(vehicles, d.assignedVehicleId)?.id || '') }} className="ml-1 p-0.5 hover:bg-[#F5F6F8] rounded inline-flex align-middle">
                           <svg className="w-3 h-3 text-[#9CA3AF]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                         </button></p>
                     </div>
@@ -1532,7 +1559,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
               </button>
             </div>
           ) : drivers.map(d => {
-            const v = vehicles.find(veh => veh.plate === d.assignedVehicleId)
+            const v = findAssignedVehicle(vehicles, d.assignedVehicleId)
             const dFills = fills.filter(f => f.driverId === d.id)
             return (
               <div key={d.id} className="p-4 rounded-2xl bg-white border border-[#E2E6EB] shadow-sm">
