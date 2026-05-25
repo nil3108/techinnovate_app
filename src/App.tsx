@@ -1010,6 +1010,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
         // Update vehicle odo
         const allVehicles = storage.getVehicles()
         storage.saveVehicles(allVehicles.map(v => String(v.id) === String(form.vehicleId) ? { ...v, currentOdo: parseInt(form.odoReading) } : v))
+        googleSync.updateOdometer(String(form.vehicleId), parseInt(form.odoReading)).catch(() => {})
       } catch (e) {
         console.error('Background sync error:', e)
       }
@@ -1605,6 +1606,9 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                             verified: approved.verified,
                             pendingVehicleApproval: false,
                           }
+                          const odoVehicles = storage.getVehicles()
+                          storage.saveVehicles(odoVehicles.map(v => String(v.id) === String(fill.vehicleId) || v.plate === fill.vehicleId ? { ...v, currentOdo: fill.odoReading } : v))
+                          googleSync.updateOdometer(String(fill.vehicleId), fill.odoReading).catch(() => {})
                           console.log('[Approve-Fills] Sending to sheets:', sheetPayload)
                           fetch(APPS_SCRIPT_URL, {
                             method: 'POST',
@@ -1694,7 +1698,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
       {tab === 'vehicles' && (
         <div className="space-y-3">
           {vehicles.map(v => {
-            const vFills = fills.filter(f => f.vehicleId === v.id)
+            const vFills = fills.filter(f => String(f.vehicleId) === String(v.id) || f.vehicleId === v.plate)
             const spent = vFills.reduce((s, f) => s + f.total, 0)
             return (
               <div key={v.id} className="p-4 rounded-2xl bg-white border border-[#E2E6EB] shadow-sm">
@@ -1898,6 +1902,9 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                             verified: pendingFill.verified,
                             pendingVehicleApproval: false,
                           }
+                          const odoV = storage.getVehicles()
+                          storage.saveVehicles(odoV.map(v => String(v.id) === String(pendingFill.vehicleId) || v.plate === pendingFill.vehicleId ? { ...v, currentOdo: pendingFill.odoReading } : v))
+                          googleSync.updateOdometer(String(pendingFill.vehicleId), pendingFill.odoReading).catch(() => {})
                           console.log('[Approve] Sending to sheets:', sheetPayload)
                           fetch(APPS_SCRIPT_URL, {
                             method: 'POST',
