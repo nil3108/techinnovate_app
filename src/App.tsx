@@ -683,10 +683,6 @@ function CameraModal({
     setIsRecording(true)
     setRecordingTime(0)
     
-    // Auto stop at 15s
-    setTimeout(() => {
-      if (recorder.state === 'recording') stopRecording()
-    }, 15000)
   }
 
   const stopRecording = () => {
@@ -755,7 +751,7 @@ function CameraModal({
             {isRecording && (
               <div className="absolute top-20 left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-2 rounded-full bg-red-500">
                 <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
-                <span className="text-white font-mono text-sm">{recordingTime}s / 10s min</span>
+                <span className="text-white font-mono text-sm">{recordingTime}s</span>
               </div>
             )}
 
