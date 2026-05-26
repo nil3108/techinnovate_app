@@ -81,10 +81,14 @@ export default function App() {
           console.log('Drivers from sheet:', data.drivers)
           // Normalize keys from sheet (case-insensitive) and save
           if (data.drivers?.length > 0) {
-            storage.saveDrivers(data.drivers.map((d: any) => normalizeKeys(d, DRIVER_KEYS)))
+            const localDrivers = storage.getDrivers()
+            const sheetDrivers = data.drivers.map((d: any) => normalizeKeys(d, DRIVER_KEYS))
+            storage.saveDrivers([...localDrivers, ...sheetDrivers.filter((sd: any) => !localDrivers.find((ld: any) => ld.id === sd.id))])
           }
           if (data.vehicles?.length > 0) {
-            storage.saveVehicles(data.vehicles.map((v: any) => normalizeKeys(v, VEHICLE_KEYS)))
+            const localVehicles = storage.getVehicles()
+            const sheetVehicles = data.vehicles.map((v: any) => normalizeKeys(v, VEHICLE_KEYS))
+            storage.saveVehicles([...localVehicles, ...sheetVehicles.filter((sv: any) => !localVehicles.find((lv: any) => lv.id === sv.id))])
           }
           if (data.fills?.length > 0) {
             console.log('Fill keys:', Object.keys(data.fills[0] || {}))
@@ -115,7 +119,8 @@ export default function App() {
                 pendingVehicleApproval: nf.pendingVehicleApproval === true || nf.pendingVehicleApproval === 'true' || nf.pendingVehicleApproval === 'TRUE',
               }
             })
-            storage.saveFills(cleanFills)
+            const localFills = storage.getFills()
+            storage.saveFills([...localFills, ...cleanFills.filter((nf: any) => !localFills.find((lf: any) => lf.id === nf.id))])
             console.log('Cleaned fills sample:', cleanFills.slice(0,2).map((f: any) => ({id: f.id, video: f.videoUrl?.substring(0,60)})))
           }
           if (data.owners?.length > 0) {

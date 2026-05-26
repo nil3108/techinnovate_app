@@ -26,11 +26,7 @@
           regs.forEach(reg => reg.unregister())
         })
       }
-      // Force reload if this is the first load after cache clear
-      if (!sessionStorage.getItem('v3_loaded')) {
-        sessionStorage.setItem('v3_loaded', 'true')
-        window.location.reload()
-      }
+
     </script>
   </body>
 </html>
