@@ -16,17 +16,5 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script>
-      // Force clear ALL caches and service workers
-      if ('caches' in window) {
-        caches.keys().then(names => names.forEach(n => caches.delete(n)))
-      }
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(regs => {
-          regs.forEach(reg => reg.unregister())
-        })
-      }
-
-    </script>
   </body>
 </html>

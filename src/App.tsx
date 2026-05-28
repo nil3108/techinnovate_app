@@ -50,6 +50,7 @@ export default function App() {
   const [session, setSession] = useState<any>(null)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [syncKey, setSyncKey] = useState(0)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const loadDataFromBackend = async () => {
@@ -166,10 +167,12 @@ export default function App() {
       if (queue.length > 0) {
         const fills = storage.getFills()
         storage.saveFills([...fills, ...queue])
+        queue.forEach(f => googleSync.saveFill(f))
         storage.clearOfflineQueue()
       }
     }
 
+    setLoading(false)
     return () => {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
@@ -185,6 +188,17 @@ export default function App() {
     storage.clearSession()
     setSession(null)
     setView('welcome')
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#F5F6F8] flex items-center justify-center">
+        <div className="text-center">
+          <img src="logo.jpg" alt="Techinnovate" className="h-12 mx-auto mb-3" />
+          <p className="text-[13px] text-[#6B7280]">Loading...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -229,9 +243,9 @@ export default function App() {
           {view === 'owner-login' && <OwnerLogin lang={lang} setView={setView} setSession={setSession} />}
           {view === 'owner-register' && <OwnerRegister lang={lang} setView={setView} setSession={setSession} />}
           {view === 'admin-login' && <AdminLogin lang={lang} setView={setView} setSession={setSession} />}
-          {view === 'driver-dash' && <DriverDashboard lang={lang} session={session} setView={setView} />}
-          {view === 'wizard' && <FillWizard lang={lang} session={session} setView={setView} />}
-          {view === 'owner-dash' && <OwnerDashboard lang={lang} session={session} syncKey={syncKey} key={'od'+syncKey} />}
+          {view === 'driver-dash' && session && <DriverDashboard lang={lang} session={session} setView={setView} syncKey={syncKey} key={'dd'+syncKey} />}
+          {view === 'wizard' && session && <FillWizard lang={lang} session={session} setView={setView} syncKey={syncKey} key={'fw'+syncKey} />}
+          {view === 'owner-dash' && session && <OwnerDashboard lang={lang} session={session} syncKey={syncKey} key={'od'+syncKey} />}
           {view === 'admin-dash' && <AdminDashboard lang={lang} syncKey={syncKey} />}
         </AnimatePresence>
       </main>
@@ -471,7 +485,7 @@ function AdminLogin({ lang, setView, setSession }: { lang: Language; setView: (v
   )
 }
 
-function DriverDashboard({ lang, session, setView }: { lang: Language; session: any; setView: (v: View) => void }) {
+function DriverDashboard({ lang, session, setView, syncKey }: { lang: Language; session: any; setView: (v: View) => void; syncKey?: number }) {
   const drivers = storage.getDrivers()
   const driver = drivers.find(d => String(d.id) === String(session.userId))
   const vehicles = storage.getVehicles()
@@ -822,7 +836,7 @@ function CameraModal({
   )
 }
 
-function FillWizard({ lang, session, setView }: { lang: Language; session: any; setView: (v: View) => void }) {
+function FillWizard({ lang, session, setView, syncKey }: { lang: Language; session: any; setView: (v: View) => void; syncKey?: number }) {
   const [step, setStep] = useState(1)
   const [showCamera, setShowCamera] = useState<'video' | 'pump' | 'receipt' | 'odo' | null>(null)
   const [captures, setCaptures] = useState<Record<string, CameraCapture>>({})
@@ -860,6 +874,17 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
 
   const handleSubmit = () => {
     if (isSubmitting) return
+    if (!form.kgs || !form.rate || !form.odoReading) {
+      alert('Please fill in KGs, Rate, and Odometer reading before submitting.')
+      return
+    }
+    const kgsNum = parseFloat(form.kgs)
+    const rateNum = parseFloat(form.rate)
+    const odoNum = parseInt(form.odoReading)
+    if (isNaN(kgsNum) || kgsNum <= 0 || isNaN(rateNum) || rateNum <= 0 || isNaN(odoNum)) {
+      alert('Please enter valid KGs, Rate, and Odometer values.')
+      return
+    }
     setIsSubmitting(true)
 
     console.log('[Submit] form.vehicleId:', form.vehicleId)
@@ -891,7 +916,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
     let fuelDropPercent = 0
     if (lastFill) {
       const expectedKgs = vehicle.capacity * 0.8
-      fuelDropPercent = ((expectedKgs - parseFloat(form.kgs)) / expectedKgs) * 100
+      fuelDropPercent = ((expectedKgs - kgsNum) / expectedKgs) * 100
     }
 
     const fillId = 'fill' + Date.now()
@@ -905,9 +930,9 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
       vehicleId: form.vehicleId,
       driverId: session.userId,
       time: new Date().toISOString(),
-      station: form.station,
-      kgs: parseFloat(form.kgs),
-      rate: parseFloat(form.rate),
+      station: form.station || 'Unknown',
+      kgs: kgsNum,
+      rate: rateNum,
       total,
       videoUrl: '', pumpPhotoUrl: '', receiptPhotoUrl: '', odoPhotoUrl: '',
       pumpGPS: captures.pump?.gps || null,
@@ -1243,47 +1268,6 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
 
             {step === 5 && (
               <div className="text-center py-8">
-                <div className="w-20 h-20 mx-auto mb-6 rounded-[24px] bg-[#DCFCE7] border border-[#BBF7D0] flex items-center justify-center">
-                  <Gauge className="w-10 h-10 text-[#166534]" />
-                </div>
-                <h2 className="text-[24px] font-bold mb-2 text-[#111827]">{t('odometerPhoto', lang)}</h2>
-                <p className="text-[#6B7280] mb-8 px-6">Take a clear photo of your vehicle's odometer.</p>
-                <button
-                  onClick={() => setShowCamera('odo')}
-                  className="w-full max-w-[280px] h-[56px] bg-[#10B981] rounded-2xl font-semibold flex items-center justify-center gap-2 mx-auto"
-                >
-                  <Camera className="w-5 h-5" />
-                  Take Photo
-                </button>
-                {captures.odo && (
-                  <div className="mt-4">
-                    <img src={captures.odo.dataUrl} alt="Odometer" className="w-full max-w-[300px] mx-auto rounded-xl" />
-                    {captures.odo.gps && (
-                      <p className="text-[11px] text-[#6B7280] mt-2 flex items-center justify-center gap-1">
-                        <MapPin className="w-3 h-3" />
-                        {captures.odo.gps.lat.toFixed(4)}, {captures.odo.gps.lng.toFixed(4)}
-                        <a href={`https://www.google.com/maps/dir/?api=1&destination=${captures.odo.gps.lat},${captures.odo.gps.lng}`} target="_blank" rel="noopener noreferrer" className="text-[#E10600] hover:underline ml-1">View</a>
-                      </p>
-                    )}
-                  </div>
-                )}
-                
-                {captures.odo && (
-                  <button
-                    onClick={handleSubmit}
-                    disabled={isSubmitting || !form.rate}
-                    className="w-full h-[56px] bg-[#E10600] text-white font-semibold rounded-2xl mt-8 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {isSubmitting ? (
-                      <><RotateCcw className="w-4 h-4 animate-spin" /> Saving...</>
-                    ) : 'Submit Fill Entry'}
-                  </button>
-                )}
-              </div>
-            )}
-
-            {step === 5 && (
-              <div className="text-center py-8">
                 <div className="w-20 h-20 mx-auto mb-6 rounded-[24px] bg-violet-500/20 border border-violet-500/30 flex items-center justify-center">
                   <Gauge className="w-10 h-10 text-violet-400" />
                 </div>
@@ -1409,10 +1393,14 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
   const [editVehicleId, setEditVehicleId] = useState('')
   const [lightboxMedia, setLightboxMedia] = useState<{ url: string; label: string } | null>(null)
 
-  const fills = storage.getFills()
-  const drivers = storage.getDrivers()
-  const vehicles = storage.getVehicles()
-  const alerts = storage.getAlerts().filter(a => !a.resolved)
+  const ownerId = session.ownerId
+  const allFills = storage.getFills()
+  const fills = allFills.filter(f => f.ownerId === ownerId)
+  const allDrivers = storage.getDrivers()
+  const drivers = allDrivers.filter(d => d.ownerId === ownerId)
+  const allVehicles = storage.getVehicles()
+  const vehicles = allVehicles.filter(v => v.ownerId === ownerId)
+  const alerts = storage.getAlerts().filter(a => !a.resolved && a.ownerId === ownerId)
 
   const todayFills = fills.filter(f => new Date(f.time).toDateString() === new Date().toDateString())
   const pendingVerifications = fills.filter(f => !f.verified)
@@ -2376,7 +2364,7 @@ function AdminDashboard({ lang, syncKey }: { lang: Language; syncKey: number }) 
                 {KPI('Blocked Owners', String(blockedOwners.length), blockedOwners.length > 0 ? 'Requires review' : undefined)}
                 {KPI('Overdue Owners', String(overdueOwners.length), overdueOwners.length > 0 ? 'Payment overdue' : undefined)}
                 {KPI('Fraud Alerts', String(fraudAlerts.length), fraudAlerts.length > 0 ? 'Needs investigation' : undefined)}
-                {KPI('Total Collections', `₹${(totalPaidAmt/1000).toFixed(1)}k`, `${((totalPaidAmt/totalDue)*100||0).toFixed(0)}% recovery`)}
+                {KPI('Total Collections', `₹${(totalPaidAmt/1000).toFixed(1)}k`, `${totalDue > 0 ? ((totalPaidAmt/totalDue)*100).toFixed(0) : '0'}% recovery`)}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
                 <div className="p-4 rounded-xl bg-white border border-[#E2E6EB]">
@@ -2660,7 +2648,7 @@ function AdminDashboard({ lang, syncKey }: { lang: Language; syncKey: number }) 
               <h1 className="text-xl sm:text-[22px] font-bold mb-3 text-[#111827]">Payment & Recovery</h1>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-5">
                 {KPI('Total Due', `₹${(totalDue/1000).toFixed(1)}k`)}
-                {KPI('Total Paid', `₹${(totalPaidAmt/1000).toFixed(1)}k`, `${((totalPaidAmt/totalDue)*100||0).toFixed(0)}%`)}
+                {KPI('Total Paid', `₹${(totalPaidAmt/1000).toFixed(1)}k`, `${totalDue > 0 ? ((totalPaidAmt/totalDue)*100).toFixed(0) : '0'}%`)}
                 {KPI('Pending', `₹${(totalPending/1000).toFixed(1)}k`)}
                 {KPI('Overdue', String(overdueOwners.length), `${overdueOwners.length} owners`)}
               </div>

@@ -8,7 +8,7 @@ export default defineConfig({
     registerType: 'autoUpdate',
     workbox: {
       globPatterns: ['**/*.{js,css,html,jpg,jpeg,png,svg,ico,json}'],
-      navigateFallback: '/techinnovate_app/index.html',
+      navigateFallback: 'index.html',
       cleanupOutdatedCaches: true,
       skipWaiting: true,
       clientsClaim: true,
