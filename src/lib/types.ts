@@ -2,6 +2,8 @@ export type Language = 'en' | 'hi' | 'gu'
 
 export type Role = 'driver' | 'owner' | 'admin'
 
+export type RiskScore = 'green' | 'yellow' | 'red'
+
 export interface Owner {
   id: string
   name: string
@@ -16,6 +18,8 @@ export interface Owner {
   adminNotes?: string
   totalPaid?: number
   lastPaymentDate?: string
+  riskScore?: RiskScore
+  creditFrozen?: boolean
 }
 
 export interface Driver {
@@ -82,4 +86,42 @@ export interface CameraCapture {
   dataUrl: string
   timestamp: number
   gps?: { lat: number; lng: number }
+}
+
+export interface AuditLog {
+  id: string
+  action: string
+  adminName: string
+  targetId: string
+  targetType: string
+  details: string
+  timestamp: string
+}
+
+export interface Notification {
+  id: string
+  type: string
+  message: string
+  severity: 'info' | 'warning' | 'critical'
+  timestamp: string
+  read: boolean
+}
+
+export interface CreditAction {
+  id: string
+  ownerId: string
+  type: 'issued' | 'emergency' | 'bonus' | 'reversal'
+  amount: number
+  timestamp: string
+  notes?: string
+}
+
+export interface PaymentEntry {
+  id: string
+  ownerId: string
+  amount: number
+  type: 'payment' | 'partial' | 'reversal'
+  timestamp: string
+  adminName: string
+  note?: string
 }

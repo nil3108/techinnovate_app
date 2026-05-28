@@ -1,4 +1,4 @@
-import type { Owner, Driver, Vehicle, Fill, Alert } from './types'
+import type { Owner, Driver, Vehicle, Fill, Alert, AuditLog, Notification, CreditAction, PaymentEntry } from './types'
 
 const KEYS = {
   OWNERS: 'cng_owners',
@@ -9,6 +9,11 @@ const KEYS = {
   OFFLINE_QUEUE: 'cng_offline_queue',
   SESSION: 'cng_session',
   LANGUAGE: 'cng_language',
+  AUDIT_LOGS: 'cng_audit_logs',
+  NOTIFICATIONS: 'cng_notifications',
+  CREDIT_ACTIONS: 'cng_credit_actions',
+  PAYMENT_ENTRIES: 'cng_payment_entries',
+  SETTINGS: 'cng_admin_settings',
 }
 
 function initDemoData() {
@@ -171,6 +176,33 @@ export const storage = {
   
   getLanguage: (): string => localStorage.getItem(KEYS.LANGUAGE) || 'en',
   setLanguage: (lang: string) => localStorage.setItem(KEYS.LANGUAGE, lang),
+
+  getAuditLogs: (): AuditLog[] => JSON.parse(localStorage.getItem(KEYS.AUDIT_LOGS) || '[]'),
+  saveAuditLogs: (logs: AuditLog[]) => localStorage.setItem(KEYS.AUDIT_LOGS, JSON.stringify(logs)),
+  addAuditLog: (log: AuditLog) => {
+    const logs = JSON.parse(localStorage.getItem(KEYS.AUDIT_LOGS) || '[]')
+    logs.push(log)
+    if (logs.length > 500) logs.splice(0, logs.length - 500)
+    localStorage.setItem(KEYS.AUDIT_LOGS, JSON.stringify(logs))
+  },
+
+  getNotifications: (): Notification[] => JSON.parse(localStorage.getItem(KEYS.NOTIFICATIONS) || '[]'),
+  saveNotifications: (notifs: Notification[]) => localStorage.setItem(KEYS.NOTIFICATIONS, JSON.stringify(notifs)),
+  addNotification: (n: Notification) => {
+    const notifs = JSON.parse(localStorage.getItem(KEYS.NOTIFICATIONS) || '[]')
+    notifs.push(n)
+    if (notifs.length > 200) notifs.splice(0, notifs.length - 200)
+    localStorage.setItem(KEYS.NOTIFICATIONS, JSON.stringify(notifs))
+  },
+
+  getCreditActions: (): CreditAction[] => JSON.parse(localStorage.getItem(KEYS.CREDIT_ACTIONS) || '[]'),
+  saveCreditActions: (actions: CreditAction[]) => localStorage.setItem(KEYS.CREDIT_ACTIONS, JSON.stringify(actions)),
+
+  getPaymentEntries: (): PaymentEntry[] => JSON.parse(localStorage.getItem(KEYS.PAYMENT_ENTRIES) || '[]'),
+  savePaymentEntries: (entries: PaymentEntry[]) => localStorage.setItem(KEYS.PAYMENT_ENTRIES, JSON.stringify(entries)),
+
+  getSettings: (): Record<string, any> => JSON.parse(localStorage.getItem(KEYS.SETTINGS) || '{}'),
+  saveSettings: (s: Record<string, any>) => localStorage.setItem(KEYS.SETTINGS, JSON.stringify(s)),
 }
 
 function parseGPS(v: any): {lat: number; lng: number} | null {
