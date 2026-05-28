@@ -11,6 +11,9 @@ export interface Owner {
   password: string
   status: 'active' | 'inactive'
   createdAt: string
+  creditLimit?: number
+  creditUsed?: number
+  adminNotes?: string
 }
 
 export interface Driver {
@@ -57,6 +60,8 @@ export interface Fill {
   ownerId: string
   verified: boolean
   pendingVehicleApproval?: boolean
+  paid?: boolean
+  paidAt?: string
 }
 
 export interface Alert {

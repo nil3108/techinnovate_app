@@ -39,8 +39,8 @@ function normalizeKeys(obj: any, expectedKeys: Record<string, string>): any {
 
 const VEHICLE_KEYS = { id: 'id', plate: 'plate', model: 'model', initialOdo: 'initialOdo', currentOdo: 'currentOdo', capacity: 'capacity', ownerId: 'ownerId', status: 'status' }
 const DRIVER_KEYS = { id: 'id', name: 'name', code: 'code', assignedVehicleId: 'assignedVehicleId', ownerId: 'ownerId', status: 'status', createdAt: 'createdAt' }
-const FILL_KEYS = { id: 'id', vehicleId: 'vehicleId', driverId: 'driverId', time: 'time', station: 'station', kgs: 'kgs', rate: 'rate', total: 'total', videoUrl: 'videoUrl', pumpPhotoUrl: 'pumpPhotoUrl', receiptPhotoUrl: 'receiptPhotoUrl', odoPhotoUrl: 'odoPhotoUrl', pumpGPS: 'pumpGPS', receiptGPS: 'receiptGPS', odoGPS: 'odoGPS', odoReading: 'odoReading', distanceDiff: 'distanceDiff', mismatch: 'mismatch', fuelDropPercent: 'fuelDropPercent', ownerId: 'ownerId', verified: 'verified', pendingVehicleApproval: 'pendingVehicleApproval' }
-const OWNER_KEYS = { id: 'id', name: 'name', email: 'email', phone: 'phone', business: 'business', password: 'password', status: 'status', createdAt: 'createdAt' }
+const FILL_KEYS = { id: 'id', vehicleId: 'vehicleId', driverId: 'driverId', time: 'time', station: 'station', kgs: 'kgs', rate: 'rate', total: 'total', videoUrl: 'videoUrl', pumpPhotoUrl: 'pumpPhotoUrl', receiptPhotoUrl: 'receiptPhotoUrl', odoPhotoUrl: 'odoPhotoUrl', pumpGPS: 'pumpGPS', receiptGPS: 'receiptGPS', odoGPS: 'odoGPS', odoReading: 'odoReading', distanceDiff: 'distanceDiff', mismatch: 'mismatch', fuelDropPercent: 'fuelDropPercent', ownerId: 'ownerId', verified: 'verified', pendingVehicleApproval: 'pendingVehicleApproval', paid: 'paid', paidAt: 'paidAt' }
+const OWNER_KEYS = { id: 'id', name: 'name', email: 'email', phone: 'phone', business: 'business', password: 'password', status: 'status', createdAt: 'createdAt', creditLimit: 'creditLimit', creditUsed: 'creditUsed', adminNotes: 'adminNotes' }
 
 
 
@@ -2154,44 +2154,353 @@ function AddVehicleModal({ lang, ownerId, onClose }: { lang: Language; ownerId: 
 }
 
 function AdminDashboard({ lang, syncKey }: { lang: Language; syncKey: number }) {
+  const [adminTab, setAdminTab] = useState<'dashboard' | 'owners' | 'fraud' | 'payments' | 'reports'>('dashboard')
+  const [expandedOwner, setExpandedOwner] = useState<string | null>(null)
+  const [editCredit, setEditCredit] = useState<{id: string; val: string} | null>(null)
+  const [editNotes, setEditNotes] = useState<{id: string; val: string} | null>(null)
+  const [ownerFilter, setOwnerFilter] = useState<'all' | 'active' | 'blocked'>('all')
+
   const owners = useMemo(() => storage.getOwners(), [syncKey])
   const drivers = useMemo(() => storage.getDrivers(), [syncKey])
   const vehicles = useMemo(() => storage.getVehicles(), [syncKey])
   const fills = useMemo(() => storage.getFills(), [syncKey])
   const alerts = useMemo(() => storage.getAlerts(), [syncKey])
 
+  const todayFills = fills.filter(f => new Date(f.time).toDateString() === new Date().toDateString())
+  const totalOutstanding = fills.reduce((s, f) => s + (f.paid ? 0 : f.total), 0)
+  const totalPaid = fills.filter(f => f.paid).reduce((s, f) => s + f.total, 0)
+  const overdueAlerts = alerts.filter(a => !a.resolved).length
+  const blockedOwners = owners.filter(o => o.status === 'inactive').length
+
+  const getOwnerStats = (ownerId: string) => {
+    const oDrivers = drivers.filter(d => d.ownerId === ownerId)
+    const oVehicles = vehicles.filter(v => v.ownerId === ownerId)
+    const oFills = fills.filter(f => oVehicles.some(v => v.id === f.vehicleId) || f.ownerId === ownerId)
+    return {
+      drivers: oDrivers.length,
+      vehicles: oVehicles.length,
+      fills: oFills.length,
+      used: oFills.reduce((s, f) => s + f.total, 0),
+      pending: oFills.filter(f => !f.paid).reduce((s, f) => s + f.total, 0),
+      paid: oFills.filter(f => f.paid).reduce((s, f) => s + f.total, 0),
+      lastFill: oFills.length > 0 ? oFills.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())[0].time : null,
+    }
+  }
+
+  const expCSV = (fn: string, h: string[], rows: any[][]) => {
+    const csv = [h.join(','), ...rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))].join('\n')
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+    a.download = fn
+    a.click()
+  }
+
+  const sidebar = [
+    { key: 'dashboard', label: 'Dashboard' },
+    { key: 'owners', label: 'Owners' },
+    { key: 'fraud', label: 'Fraud & Alerts' },
+    { key: 'payments', label: 'Payments' },
+    { key: 'reports', label: 'Reports' },
+  ]
+
+  const renderKPI = (label: string, value: string, color: string) => (
+    <div className="p-3.5 rounded-xl bg-white border border-[#E2E6EB]">
+      <p className="text-[20px] font-bold text-[#111827]">{value}</p>
+      <p className="text-[11px] text-[#6B7280]">{label}</p>
+    </div>
+  )
+
   return (
-    <div className="p-5">
-      <h1 className="text-[24px] font-bold mb-6 text-[#111827]">Admin Dashboard</h1>
-      
-      <div className="grid grid-cols-2 gap-3 mb-6">
-        {[
-          { label: 'Owners', value: owners.length },
-          { label: 'Drivers', value: drivers.length },
-          { label: 'Vehicles', value: vehicles.length },
-          { label: 'Fills', value: fills.length },
-          { label: 'Alerts', value: alerts.filter(a => !a.resolved).length },
-          { label: 'Revenue', value: `₹${(fills.reduce((s, f) => s + f.total, 0)/1000).toFixed(0)}k` },
-        ].map(stat => (
-          <div key={stat.label} className="p-4 rounded-2xl bg-white border border-[#E2E6EB] shadow-sm">
-            <p className="text-[22px] font-bold text-[#111827]">{stat.value}</p>
-            <p className="text-[12px] text-[#6B7280]">{stat.label}</p>
-          </div>
+    <div className="flex min-h-screen bg-[#F5F6F8]">
+      {/* Sidebar */}
+      <div className="w-[180px] flex-shrink-0 bg-white border-r border-[#E2E6EB] p-3 space-y-1">
+        <p className="text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider px-3 pb-3 pt-2">Admin</p>
+        {sidebar.map(item => (
+          <button key={item.key} onClick={() => setAdminTab(item.key as any)}
+            className={`w-full text-left px-3 py-2 rounded-lg text-[13px] font-medium transition-colors ${
+              adminTab === item.key ? 'bg-[#FDE8E8] text-[#E10600]' : 'text-[#6B7280] hover:bg-[#F5F6F8]'
+            }`}
+          >
+            {item.label}
+          </button>
         ))}
       </div>
 
-      <div className="space-y-4">
-        <div>
-          <h3 className="text-[13px] font-semibold text-[#6B7280] uppercase tracking-wider mb-3">All Owners</h3>
-          <div className="space-y-2">
-            {owners.map(o => (
-              <div key={o.id} className="p-3.5 rounded-xl bg-white border border-[#E2E6EB]">
-                <p className="font-medium text-[14px] text-[#111827]">{o.business}</p>
-                <p className="text-[12px] text-[#6B7280]">{o.name} • {o.email}</p>
+      {/* Content */}
+      <div className="flex-1 p-5 max-w-[900px]">
+        {/* DASHBOARD TAB */}
+        {adminTab === 'dashboard' && (
+          <>
+            <h1 className="text-[22px] font-bold mb-5 text-[#111827]">Dashboard</h1>
+            <div className="grid grid-cols-3 gap-3 mb-6">
+              {renderKPI('Total Owners', String(owners.length), '')}
+              {renderKPI('Active Fills Today', String(todayFills.length), '')}
+              {renderKPI('Total Outstanding', `₹${(totalOutstanding/1000).toFixed(1)}k`, '')}
+              {renderKPI('Overdue Alerts', String(overdueAlerts), '')}
+              {renderKPI('Blocked Owners', String(blockedOwners), '')}
+              {renderKPI('Total Fleet', String(vehicles.length), '')}
+            </div>
+            <div>
+              <h3 className="text-[13px] font-semibold text-[#6B7280] uppercase tracking-wider mb-3">Recent Activity</h3>
+              <div className="space-y-2">
+                {alerts.slice(-5).reverse().map(a => (
+                  <div key={a.id} className="p-3 rounded-xl bg-white border border-[#E2E6EB] text-[12px]">
+                    <span className={`inline-block w-1.5 h-1.5 rounded-full mr-2 ${a.resolved ? 'bg-[#6B7280]' : 'bg-[#E10600]'}`} />
+                    {a.event} — <span className="text-[#6B7280]">{a.user} • {new Date(a.time).toLocaleDateString()}</span>
+                  </div>
+                ))}
+                {alerts.length === 0 && <p className="text-[13px] text-[#6B7280]">No recent activity</p>}
               </div>
-            ))}
-          </div>
-        </div>
+            </div>
+          </>
+        )}
+
+        {/* OWNERS TAB */}
+        {adminTab === 'owners' && (
+          <>
+            <h1 className="text-[22px] font-bold mb-4 text-[#111827]">Owner Management</h1>
+            <div className="flex gap-2 mb-4">
+              {(['all', 'active', 'blocked'] as const).map(f => (
+                <button key={f} onClick={() => setOwnerFilter(f)}
+                  className={`px-3 py-1.5 rounded-lg text-[12px] font-medium ${ownerFilter === f ? 'bg-[#E10600] text-white' : 'bg-[#F5F6F8] text-[#6B7280]'}`}
+                >
+                  {f.charAt(0).toUpperCase() + f.slice(1)}
+                </button>
+              ))}
+            </div>
+            <div className="space-y-2">
+              {owners.filter(o => ownerFilter === 'all' || (ownerFilter === 'blocked' ? o.status === 'inactive' : o.status === 'active')).map(o => {
+                const stats = getOwnerStats(o.id)
+                const expanded = expandedOwner === o.id
+                return (
+                  <div key={o.id} className="rounded-xl bg-white border border-[#E2E6EB] overflow-hidden">
+                    <div className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-[#F9FAFB]" onClick={() => setExpandedOwner(expanded ? null : o.id)}>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-[14px] text-[#111827]">{o.business}</p>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${o.status === 'active' ? 'bg-[#DCFCE7] text-[#166534]' : 'bg-[#FEE2E2] text-[#991B1B]'}`}>
+                            {o.status}
+                          </span>
+                        </div>
+                        <p className="text-[12px] text-[#6B7280]">{o.name} • {o.email}</p>
+                        <div className="flex gap-3 mt-1 text-[11px] text-[#6B7280]">
+                          <span>{stats.drivers} drivers</span>
+                          <span>{stats.vehicles} vehicles</span>
+                          <span>{stats.fills} fills</span>
+                          <span>₹{(stats.pending/1000).toFixed(1)}k pending</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${(o.creditLimit || 0) > 0 ? 'bg-[#DBEAFE] text-[#1E40AF]' : 'bg-[#F5F6F8] text-[#6B7280]'}`}>
+                          Limit: ₹{((o.creditLimit || 0)/1000).toFixed(0)}k
+                        </span>
+                      </div>
+                    </div>
+
+                    {expanded && (
+                      <div className="px-3.5 pb-3.5 border-t border-[#E2E6EB] pt-3 space-y-2">
+                        <div className="grid grid-cols-3 gap-3 text-[12px]">
+                          <div className="p-2.5 rounded-lg bg-[#F5F6F8]">
+                            <p className="text-[#6B7280]">Used Credit</p>
+                            <p className="font-semibold text-[#111827]">₹{(stats.used/1000).toFixed(1)}k</p>
+                          </div>
+                          <div className="p-2.5 rounded-lg bg-[#F5F6F8]">
+                            <p className="text-[#6B7280]">Paid</p>
+                            <p className="font-semibold text-[#166534]">₹{(stats.paid/1000).toFixed(1)}k</p>
+                          </div>
+                          <div className="p-2.5 rounded-lg bg-[#F5F6F8]">
+                            <p className="text-[#6B7280]">Pending</p>
+                            <p className="font-semibold text-[#991B1B]">₹{(stats.pending/1000).toFixed(1)}k</p>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          {o.status === 'active' ? (
+                            <button onClick={() => {
+                              const up = owners.map(x => x.id === o.id ? { ...x, status: 'inactive' as const } : x)
+                              storage.saveOwners(up)
+                              window.location.reload()
+                            }} className="px-3 py-1.5 rounded-lg bg-[#FEE2E2] text-[#991B1B] text-[11px] font-medium hover:bg-[#FECACA]">
+                              Block
+                            </button>
+                          ) : (
+                            <button onClick={() => {
+                              const up = owners.map(x => x.id === o.id ? { ...x, status: 'active' as const } : x)
+                              storage.saveOwners(up)
+                              window.location.reload()
+                            }} className="px-3 py-1.5 rounded-lg bg-[#DCFCE7] text-[#166534] text-[11px] font-medium hover:bg-[#BBF7D0]">
+                              Unblock
+                            </button>
+                          )}
+                          <button onClick={() => setEditCredit({ id: o.id, val: String(o.creditLimit || '') })} className="px-3 py-1.5 rounded-lg bg-[#DBEAFE] text-[#1E40AF] text-[11px] font-medium hover:bg-[#BFDBFE]">
+                            Set Limit
+                          </button>
+                          <button onClick={() => setEditNotes({ id: o.id, val: o.adminNotes || '' })} className="px-3 py-1.5 rounded-lg bg-[#F5F6F8] text-[#6B7280] text-[11px] font-medium hover:bg-[#E2E6EB]">
+                            {o.adminNotes ? 'Edit Note' : 'Add Note'}
+                          </button>
+                        </div>
+
+                        {editCredit?.id === o.id && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-[12px] text-[#6B7280]">₹</span>
+                            <input value={editCredit.val} onChange={e => setEditCredit({ ...editCredit, val: e.target.value })}
+                              className="flex-1 h-9 px-3 bg-white border border-[#E2E6EB] rounded-lg text-[13px]" placeholder="Credit limit" />
+                            <button onClick={() => {
+                              const up = owners.map(x => x.id === o.id ? { ...x, creditLimit: parseInt(editCredit.val) || 0 } : x)
+                              storage.saveOwners(up)
+                              setEditCredit(null)
+                              window.location.reload()
+                            }} className="px-3 h-9 rounded-lg bg-[#E10600] text-white text-[11px] font-medium">Save</button>
+                            <button onClick={() => setEditCredit(null)} className="px-3 h-9 rounded-lg bg-[#F5F6F8] text-[#6B7280] text-[11px]">Cancel</button>
+                          </div>
+                        )}
+                        {editNotes?.id === o.id && (
+                          <div className="flex items-center gap-2">
+                            <input value={editNotes.val} onChange={e => setEditNotes({ ...editNotes, val: e.target.value })}
+                              className="flex-1 h-9 px-3 bg-white border border-[#E2E6EB] rounded-lg text-[13px]" placeholder="Private note..." />
+                            <button onClick={() => {
+                              const up = owners.map(x => x.id === o.id ? { ...x, adminNotes: editNotes.val } : x)
+                              storage.saveOwners(up)
+                              setEditNotes(null)
+                              window.location.reload()
+                            }} className="px-3 h-9 rounded-lg bg-[#E10600] text-white text-[11px] font-medium">Save</button>
+                            <button onClick={() => setEditNotes(null)} className="px-3 h-9 rounded-lg bg-[#F5F6F8] text-[#6B7280] text-[11px]">Cancel</button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+              {owners.length === 0 && <p className="text-[13px] text-[#6B7280]">No owners registered</p>}
+            </div>
+          </>
+        )}
+
+        {/* FRAUD & ALERTS TAB */}
+        {adminTab === 'fraud' && (
+          <>
+            <h1 className="text-[22px] font-bold mb-4 text-[#111827]">Fraud & Alerts</h1>
+            <div className="space-y-2">
+              {alerts.filter(a => !a.resolved).length === 0 && (
+                <div className="p-4 rounded-xl bg-[#DCFCE7] border border-[#BBF7D0] text-[13px] font-medium text-[#166534]">All clear — no unresolved alerts</div>
+              )}
+              {alerts.slice().reverse().map(a => (
+                <div key={a.id} className={`p-3.5 rounded-xl border ${
+                  a.resolved ? 'bg-white border-[#E2E6EB]' :
+                  a.type === 'vehicle_override' ? 'bg-[#FEF3C7] border-[#FDE68A]' :
+                  a.type === 'fuel_drop' ? 'bg-[#FEE2E2] border-[#FECACA]' :
+                  'bg-[#FFFBEB] border-[#FDE68A]'
+                }`}>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                          a.type === 'fuel_drop' ? 'bg-[#FECACA] text-[#991B1B]' :
+                          a.type === 'vehicle_override' ? 'bg-[#FDE68A] text-[#92400E]' :
+                          'bg-[#BFDBFE] text-[#1E40AF]'
+                        }`}>
+                          {a.type === 'fuel_drop' ? 'Fuel Drop' : a.type === 'vehicle_override' ? 'Override' : 'Mismatch'}
+                        </span>
+                        <span className={`w-2 h-2 rounded-full ${a.resolved ? 'bg-[#6B7280]' : 'bg-[#E10600]'}`} />
+                        <span className="text-[11px] text-[#6B7280]">{a.resolved ? 'Resolved' : 'Active'}</span>
+                      </div>
+                      <p className="text-[13px] font-medium text-[#111827]">{a.event}</p>
+                      <p className="text-[11px] text-[#6B7280] mt-0.5">{a.user} • {new Date(a.time).toLocaleString()}</p>
+                    </div>
+                    <div className="flex gap-1 flex-shrink-0">
+                      {!a.resolved && (
+                        <button onClick={() => {
+                          const up = alerts.map(x => x.id === a.id ? { ...x, resolved: true } : x)
+                          storage.saveAlerts(up)
+                          window.location.reload()
+                        }} className="px-2.5 py-1 rounded-lg bg-white border border-[#E2E6EB] text-[11px] font-medium text-[#6B7280] hover:bg-[#F5F6F8]">
+                          Resolve
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* PAYMENTS TAB */}
+        {adminTab === 'payments' && (
+          <>
+            <h1 className="text-[22px] font-bold mb-4 text-[#111827]">Payment & Recovery</h1>
+            <div className="grid grid-cols-3 gap-3 mb-5">
+              {renderKPI('Total Due', `₹${((totalOutstanding + totalPaid)/1000).toFixed(1)}k`, '')}
+              {renderKPI('Paid', `₹${(totalPaid/1000).toFixed(1)}k`, '')}
+              {renderKPI('Pending', `₹${(totalOutstanding/1000).toFixed(1)}k`, '')}
+            </div>
+            <div className="space-y-2">
+              {owners.map(o => {
+                const stats = getOwnerStats(o.id)
+                if (stats.pending === 0) return null
+                return (
+                  <div key={o.id} className="p-3.5 rounded-xl bg-white border border-[#E2E6EB]">
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <p className="font-medium text-[14px] text-[#111827]">{o.business}</p>
+                        <p className="text-[11px] text-[#6B7280]">{o.name} • {stats.vehicles} vehicles</p>
+                      </div>
+                      <span className={`px-2.5 py-1 rounded-full text-[11px] font-medium ${
+                        stats.pending > 0 ? 'bg-[#FEF3C7] text-[#92400E]' : 'bg-[#DCFCE7] text-[#166534]'
+                      }`}>
+                        ₹{(stats.pending/1000).toFixed(1)}k pending
+                      </span>
+                    </div>
+                    {stats.lastFill && (
+                      <p className="text-[11px] text-[#6B7280]">Last fill: {new Date(stats.lastFill).toLocaleDateString()}</p>
+                    )}
+                  </div>
+                )
+              })}
+              {owners.every(o => getOwnerStats(o.id).pending === 0) && (
+                <p className="text-[13px] text-[#6B7280]">All payments cleared — no pending amounts</p>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* REPORTS TAB */}
+        {adminTab === 'reports' && (
+          <>
+            <h1 className="text-[22px] font-bold mb-4 text-[#111827]">Reports & Export</h1>
+            <div className="space-y-3">
+              <button onClick={() => expCSV('owners.csv', ['Business', 'Name', 'Email', 'Phone', 'Status', 'Credit Limit', 'Credit Used', 'Drivers', 'Vehicles'],
+                owners.map(o => {
+                  const s = getOwnerStats(o.id)
+                  return [o.business, o.name, o.email, o.phone, o.status, o.creditLimit || 0, s.used, s.drivers, s.vehicles]
+                })
+              )} className="w-full p-3.5 rounded-xl bg-white border border-[#E2E6EB] text-left hover:bg-[#F9FAFB]">
+                <p className="font-medium text-[14px] text-[#111827]">Export Owners</p>
+                <p className="text-[11px] text-[#6B7280]">Owners with fleet size, credit limit, and usage</p>
+              </button>
+              <button onClick={() => expCSV('fills.csv', ['ID', 'Vehicle', 'Driver', 'Date', 'Station', 'KGs', 'Rate', 'Total', 'Paid', 'Verified'],
+                fills.map(f => {
+                  const v = vehicles.find(ve => ve.id === f.vehicleId)
+                  const d = drivers.find(dr => dr.id === f.driverId)
+                  return [f.id, v?.plate || f.vehicleId, d?.name || f.driverId, new Date(f.time).toLocaleDateString(), f.station, f.kgs, f.rate, f.total, f.paid ? 'Yes' : 'No', f.verified ? 'Yes' : 'No']
+                })
+              )} className="w-full p-3.5 rounded-xl bg-white border border-[#E2E6EB] text-left hover:bg-[#F9FAFB]">
+                <p className="font-medium text-[14px] text-[#111827]">Export All Fills</p>
+                <p className="text-[11px] text-[#6B7280]">All fill entries with vehicle, driver, and payment status</p>
+              </button>
+              <button onClick={() => expCSV('pending_payments.csv', ['Owner', 'Business', 'Pending Amount', 'Vehicles', 'Last Fill'],
+                owners.map(o => {
+                  const s = getOwnerStats(o.id)
+                  return s.pending > 0 ? [o.name, o.business, s.pending, s.vehicles, s.lastFill ? new Date(s.lastFill).toLocaleDateString() : 'N/A'] : null
+                }).filter((x): x is any[] => x !== null)
+              )} className="w-full p-3.5 rounded-xl bg-white border border-[#E2E6EB] text-left hover:bg-[#F9FAFB]">
+                <p className="font-medium text-[14px] text-[#111827]">Export Pending Payments</p>
+                <p className="text-[11px] text-[#6B7280]">Owners with outstanding amounts</p>
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
