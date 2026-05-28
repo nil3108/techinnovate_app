@@ -14,6 +14,8 @@ export interface Owner {
   creditLimit?: number
   creditUsed?: number
   adminNotes?: string
+  totalPaid?: number
+  lastPaymentDate?: string
 }
 
 export interface Driver {

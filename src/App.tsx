@@ -40,7 +40,7 @@ function normalizeKeys(obj: any, expectedKeys: Record<string, string>): any {
 const VEHICLE_KEYS = { id: 'id', plate: 'plate', model: 'model', initialOdo: 'initialOdo', currentOdo: 'currentOdo', capacity: 'capacity', ownerId: 'ownerId', status: 'status' }
 const DRIVER_KEYS = { id: 'id', name: 'name', code: 'code', assignedVehicleId: 'assignedVehicleId', ownerId: 'ownerId', status: 'status', createdAt: 'createdAt' }
 const FILL_KEYS = { id: 'id', vehicleId: 'vehicleId', driverId: 'driverId', time: 'time', station: 'station', kgs: 'kgs', rate: 'rate', total: 'total', videoUrl: 'videoUrl', pumpPhotoUrl: 'pumpPhotoUrl', receiptPhotoUrl: 'receiptPhotoUrl', odoPhotoUrl: 'odoPhotoUrl', pumpGPS: 'pumpGPS', receiptGPS: 'receiptGPS', odoGPS: 'odoGPS', odoReading: 'odoReading', distanceDiff: 'distanceDiff', mismatch: 'mismatch', fuelDropPercent: 'fuelDropPercent', ownerId: 'ownerId', verified: 'verified', pendingVehicleApproval: 'pendingVehicleApproval', paid: 'paid', paidAt: 'paidAt', paidAmount: 'paidAmount' }
-const OWNER_KEYS = { id: 'id', name: 'name', email: 'email', phone: 'phone', business: 'business', password: 'password', status: 'status', createdAt: 'createdAt', creditLimit: 'creditLimit', creditUsed: 'creditUsed', adminNotes: 'adminNotes' }
+const OWNER_KEYS = { id: 'id', name: 'name', email: 'email', phone: 'phone', business: 'business', password: 'password', status: 'status', createdAt: 'createdAt', creditLimit: 'creditLimit', creditUsed: 'creditUsed', adminNotes: 'adminNotes', totalPaid: 'totalPaid', lastPaymentDate: 'lastPaymentDate' }
 
 
 
@@ -2159,9 +2159,8 @@ function AdminDashboard({ lang, syncKey }: { lang: Language; syncKey: number }) 
   const [editCredit, setEditCredit] = useState<{id: string; val: string} | null>(null)
   const [editNotes, setEditNotes] = useState<{id: string; val: string} | null>(null)
   const [ownerFilter, setOwnerFilter] = useState<'all' | 'active' | 'blocked'>('all')
-  const [payFilter, setPayFilter] = useState<'unpaid' | 'paid' | 'all'>('unpaid')
-  const [payingFill, setPayingFill] = useState<string | null>(null)
-  const [payAmount, setPayAmount] = useState('')
+  const [payOwner, setPayOwner] = useState<string | null>(null)
+  const [payAmt, setPayAmt] = useState('')
 
   const owners = useMemo(() => storage.getOwners(), [syncKey])
   const drivers = useMemo(() => storage.getDrivers(), [syncKey])
@@ -2171,7 +2170,7 @@ function AdminDashboard({ lang, syncKey }: { lang: Language; syncKey: number }) 
 
   const todayFills = fills.filter(f => new Date(f.time).toDateString() === new Date().toDateString())
   const totalDue = fills.reduce((s, f) => s + f.total, 0)
-  const totalPaidAmt = fills.reduce((s, f) => s + (f.paidAmount || (f.paid ? f.total : 0)), 0)
+  const totalPaidAmt = owners.reduce((s, o) => s + (o.totalPaid || 0), 0)
   const totalPending = totalDue - totalPaidAmt
   const overdueAlerts = alerts.filter(a => !a.resolved).length
   const blockedOwners = owners.filter(o => o.status === 'inactive').length
@@ -2180,13 +2179,15 @@ function AdminDashboard({ lang, syncKey }: { lang: Language; syncKey: number }) 
     const oDrivers = drivers.filter(d => d.ownerId === ownerId)
     const oVehicles = vehicles.filter(v => v.ownerId === ownerId)
     const oFills = fills.filter(f => oVehicles.some(v => v.id === f.vehicleId) || f.ownerId === ownerId)
-    const paid = oFills.reduce((s, f) => s + (f.paidAmount || (f.paid ? f.total : 0)), 0)
+    const owner = owners.find(o => o.id === ownerId)
+    const paid = owner?.totalPaid || 0
+    const used = oFills.reduce((s, f) => s + f.total, 0)
     return {
       drivers: oDrivers.length,
       vehicles: oVehicles.length,
       fills: oFills.length,
-      used: oFills.reduce((s, f) => s + f.total, 0),
-      pending: oFills.reduce((s, f) => s + (f.total - (f.paidAmount || (f.paid ? f.total : 0))), 0),
+      used,
+      pending: used - paid,
       paid,
       lastFill: oFills.length > 0 ? oFills.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())[0].time : null,
     }
@@ -2216,21 +2217,9 @@ function AdminDashboard({ lang, syncKey }: { lang: Language; syncKey: number }) 
     </div>
   )
 
-  const markPaid = (fillId: string, amount: number) => {
-    const updated = fills.map(f => f.id === fillId ? { ...f, paid: true, paidAmount: amount, paidAt: new Date().toISOString() } : f)
-    storage.saveFills(updated)
-    window.location.reload()
-  }
-
-  const markUnpaid = (fillId: string) => {
-    const updated = fills.map(f => f.id === fillId ? { ...f, paid: false, paidAmount: undefined, paidAt: undefined } : f)
-    storage.saveFills(updated)
-    window.location.reload()
-  }
-
   return (
     <div className="min-h-screen bg-[#F5F6F8]">
-      {/* Mobile nav — horizontal scroll */}
+      {/* Mobile nav */}
       <div className="flex sm:hidden gap-1 p-3 bg-white border-b border-[#E2E6EB] overflow-x-auto">
         {nav.map(item => (
           <button key={item.key} onClick={() => setTab(item.key as any)}
@@ -2257,7 +2246,6 @@ function AdminDashboard({ lang, syncKey }: { lang: Language; syncKey: number }) 
           </button>
         </div>
 
-        {/* Content */}
         <div className="flex-1 p-4 sm:p-5 max-w-full sm:max-w-[960px]">
 
           {/* ===== DASHBOARD ===== */}
@@ -2423,111 +2411,61 @@ function AdminDashboard({ lang, syncKey }: { lang: Language; syncKey: number }) 
           {tab === 'payments' && (
             <>
               <h1 className="text-xl sm:text-[22px] font-bold mb-3 text-[#111827]">Payment & Recovery</h1>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3 mb-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3 mb-5">
                 {KPI('Total Due', `₹${(totalDue/1000).toFixed(1)}k`)}
                 {KPI('Total Paid', `₹${(totalPaidAmt/1000).toFixed(1)}k`, `${((totalPaidAmt/totalDue)*100||0).toFixed(0)}%`)}
                 {KPI('Pending', `₹${(totalPending/1000).toFixed(1)}k`)}
               </div>
 
-              {/* Filter pills */}
-              <div className="flex gap-2 mb-4">
-                {(['unpaid', 'paid', 'all'] as const).map(f => (
-                  <button key={f} onClick={() => { setPayFilter(f); setPayingFill(null) }}
-                    className={`px-3 py-1.5 rounded-lg text-[12px] font-medium ${payFilter === f ? 'bg-[#E10600] text-white' : 'bg-[#F5F6F8] text-[#6B7280]'}`}
-                  >
-                    {f === 'unpaid' ? 'Unpaid' : f === 'paid' ? 'Paid' : 'All'}
-                  </button>
-                ))}
-              </div>
-
-              {/* Fill ledger */}
-              <div className="space-y-2 mb-6">
-                {fills.slice().reverse().filter(f => {
-                  const isPaid = f.paid || (f.paidAmount || 0) > 0
-                  if (payFilter === 'paid') return isPaid
-                  if (payFilter === 'unpaid') return !isPaid
-                  return true
-                }).map(f => {
-                  const v = vehicles.find(ve => ve.id === f.vehicleId)
-                  const d = drivers.find(dr => dr.id === f.driverId)
-                  const o = owners.find(ow => ow.id === f.ownerId)
-                  const isPaid = f.paid || (f.paidAmount || 0) > 0
-                  const paidAmt = f.paidAmount || (f.paid ? f.total : 0)
-                  const remaining = f.total - paidAmt
-                  const isPaying = payingFill === f.id
+              <div className="space-y-3">
+                {owners.filter(o => getOwnerStats(o.id).used > 0).map(o => {
+                  const stats = getOwnerStats(o.id)
+                  const isPaying = payOwner === o.id
                   return (
-                    <div key={f.id} className={`p-3 sm:p-4 rounded-xl border ${isPaid ? 'bg-white border-[#E2E6EB]' : 'bg-[#FFFBEB] border-[#FDE68A]'}`}>
-                      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                    <div key={o.id} className="p-4 rounded-xl bg-white border border-[#E2E6EB]">
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-mono font-semibold text-[13px] text-[#111827]">{v?.plate || f.vehicleId}</span>
-                            <span className="text-[11px] text-[#6B7280]">{d?.name || f.driverId}</span>
-                            <span className="text-[11px] text-[#6B7280]">•</span>
-                            <span className="text-[11px] text-[#6B7280]">{new Date(f.time).toLocaleDateString()}</span>
-                            <span className="text-[11px] text-[#6B7280]">•</span>
-                            <span className="text-[11px] text-[#6B7280]">{f.station}</span>
+                          <p className="font-semibold text-[14px] text-[#111827]">{o.business}</p>
+                          <p className="text-[12px] text-[#6B7280]">{o.name} • {stats.vehicles} vehicles • {stats.drivers} drivers</p>
+                          <div className="flex gap-4 mt-2 text-[12px]">
+                            <span>Used: <strong>₹{(stats.used/1000).toFixed(1)}k</strong></span>
+                            <span className="text-[#166534]">Paid: <strong>₹{(stats.paid/1000).toFixed(1)}k</strong></span>
+                            <span className="text-[#991B1B]">Pending: <strong>₹{(stats.pending/1000).toFixed(1)}k</strong></span>
                           </div>
-                          <div className="flex items-center gap-3 mt-1 text-[12px] flex-wrap">
-                            <span>{f.kgs}kg × ₹{f.rate} = <strong>₹{f.total}</strong></span>
-                            {o && <span className="text-[#6B7280]">({o.business})</span>}
-                          </div>
+                          {stats.lastFill && <p className="text-[10px] text-[#6B7280] mt-1">Last fill: {new Date(stats.lastFill).toLocaleDateString()}</p>}
                         </div>
-                        <div className="shrink-0 text-left sm:text-right">
-                          {isPaid ? (
-                            <div className="flex items-center gap-2 flex-wrap sm:justify-end">
-                              <span className="px-2 py-0.5 rounded-full bg-[#DCFCE7] text-[#166534] text-[11px] font-medium">✅ ₹{paidAmt}</span>
-                              {f.paidAt && <span className="text-[10px] text-[#6B7280]">{new Date(f.paidAt).toLocaleDateString()}</span>}
-                              <button onClick={() => markUnpaid(f.id)} className="px-2 py-1 rounded-lg bg-[#F5F6F8] text-[#6B7280] text-[11px] font-medium hover:bg-[#FEE2E2] hover:text-[#991B1B]">Unpaid</button>
-                            </div>
+                        <div className="shrink-0">
+                          {stats.pending > 0 ? (
+                            !isPaying ? (
+                              <button onClick={() => { setPayOwner(o.id); setPayAmt(String(stats.pending)) }}
+                                className="px-4 py-2 rounded-lg bg-[#E10600] text-white text-[12px] font-medium">Mark Paid</button>
+                            ) : (
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[12px] text-[#6B7280]">₹</span>
+                                <input value={payAmt} onChange={e => setPayAmt(e.target.value.replace(/[^0-9.]/g, ''))}
+                                  className="w-24 h-9 px-2 bg-white border border-[#E2E6EB] rounded-lg text-[13px] font-mono text-center" />
+                                <button onClick={() => {
+                                  const amt = parseFloat(payAmt)
+                                  if (amt > 0) {
+                                    const updated = owners.map(x => x.id === o.id ? { ...x, totalPaid: (x.totalPaid || 0) + amt, lastPaymentDate: new Date().toISOString() } : x)
+                                    storage.saveOwners(updated)
+                                    setPayOwner(null)
+                                    window.location.reload()
+                                  }
+                                }} className="px-3 h-9 rounded-lg bg-[#059669] text-white text-[12px] font-medium">Confirm</button>
+                                <button onClick={() => setPayOwner(null)} className="px-3 h-9 rounded-lg bg-[#F5F6F8] text-[#6B7280] text-[12px]">✕</button>
+                              </div>
+                            )
                           ) : (
-                            <div className="flex items-center gap-2 flex-wrap sm:justify-end">
-                              <span className="text-[11px] text-[#991B1B] font-medium">₹{remaining} due</span>
-                              {!isPaying ? (
-                                <button onClick={() => { setPayingFill(f.id); setPayAmount(String(remaining)) }} className="px-3 py-1.5 rounded-lg bg-[#E10600] text-white text-[11px] font-medium">Mark Paid</button>
-                              ) : (
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-[11px] text-[#6B7280]">₹</span>
-                                  <input value={payAmount} onChange={e => setPayAmount(e.target.value.replace(/[^0-9.]/g, ''))}
-                                    className="w-20 h-8 px-2 bg-white border border-[#E2E6EB] rounded-lg text-[12px] font-mono text-center" />
-                                  <button onClick={() => { const amt = parseFloat(payAmount); if (amt > 0) markPaid(f.id, amt) }}
-                                    className="px-2.5 h-8 rounded-lg bg-[#059669] text-white text-[11px] font-medium">Confirm</button>
-                                  <button onClick={() => setPayingFill(null)} className="px-2 h-8 rounded-lg bg-[#F5F6F8] text-[#6B7280] text-[11px]">✕</button>
-                                </div>
-                              )}
-                            </div>
+                            <span className="px-3 py-1.5 rounded-lg bg-[#DCFCE7] text-[#166534] text-[12px] font-medium">✅ Cleared</span>
                           )}
                         </div>
                       </div>
                     </div>
                   )
                 })}
-                {fills.filter(f => !f.paid).length === 0 && payFilter === 'unpaid' && (
-                  <p className="text-[13px] text-[#6B7280]">All fills are paid — no pending amounts</p>
-                )}
-              </div>
-
-              {/* Per-owner summary */}
-              <h3 className="text-[12px] font-semibold text-[#6B7280] uppercase tracking-wider mb-3">By Owner</h3>
-              <div className="space-y-2">
-                {owners.filter(o => getOwnerStats(o.id).pending > 0).map(o => {
-                  const stats = getOwnerStats(o.id)
-                  return (
-                    <div key={o.id} className="p-3 sm:p-4 rounded-xl bg-white border border-[#E2E6EB]">
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <div>
-                          <p className="font-medium text-[14px] text-[#111827]">{o.business}</p>
-                          <p className="text-[11px] text-[#6B7280]">{o.name} • {stats.vehicles} vehicles</p>
-                        </div>
-                        <div className="text-right">
-                          <span className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-[#FEF3C7] text-[#92400E]">₹{(stats.pending/1000).toFixed(1)}k pending</span>
-                          {stats.lastFill && <p className="text-[10px] text-[#6B7280] mt-1">Last: {new Date(stats.lastFill).toLocaleDateString()}</p>}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-                {owners.every(o => getOwnerStats(o.id).pending === 0) && (
-                  <p className="text-[13px] text-[#6B7280]">All payments cleared</p>
+                {owners.every(o => getOwnerStats(o.id).used === 0) && (
+                  <p className="text-[13px] text-[#6B7280]">No fill data available</p>
                 )}
               </div>
             </>
@@ -2538,32 +2476,32 @@ function AdminDashboard({ lang, syncKey }: { lang: Language; syncKey: number }) 
             <>
               <h1 className="text-xl sm:text-[22px] font-bold mb-4 text-[#111827]">Reports & Export</h1>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <button onClick={() => expCSV('owners.csv', ['Business', 'Name', 'Email', 'Phone', 'Status', 'Credit Limit', 'Credit Used', 'Drivers', 'Vehicles'],
-                  owners.map(o => { const s = getOwnerStats(o.id); return [o.business, o.name, o.email, o.phone, o.status, o.creditLimit || 0, s.used, s.drivers, s.vehicles] })
+                <button onClick={() => expCSV('owners.csv', ['Business', 'Name', 'Email', 'Phone', 'Status', 'Credit Limit', 'Total Used', 'Total Paid', 'Pending', 'Drivers', 'Vehicles'],
+                  owners.map(o => { const s = getOwnerStats(o.id); return [o.business, o.name, o.email, o.phone, o.status, o.creditLimit || 0, s.used, s.paid, s.pending, s.drivers, s.vehicles] })
                 )} className="p-4 rounded-xl bg-white border border-[#E2E6EB] text-left hover:bg-[#F9FAFB] transition-colors">
                   <p className="font-semibold text-[14px] text-[#111827]">📋 Export Owners</p>
-                  <p className="text-[11px] text-[#6B7280] mt-0.5">Owners with fleet size, credit limit, and usage</p>
+                  <p className="text-[11px] text-[#6B7280] mt-0.5">Owners with fleet size, credit, and payment status</p>
                 </button>
-                <button onClick={() => expCSV('fills.csv', ['ID', 'Vehicle', 'Driver', 'Date', 'Station', 'KGs', 'Rate', 'Total', 'Paid Amt', 'Remaining', 'Verified'],
+                <button onClick={() => expCSV('fills.csv', ['ID', 'Vehicle', 'Driver', 'Date', 'Station', 'KGs', 'Rate', 'Total', 'Owner', 'Verified'],
                   fills.map(f => {
                     const v = vehicles.find(ve => ve.id === f.vehicleId); const d = drivers.find(dr => dr.id === f.driverId)
-                    const paid = f.paidAmount || (f.paid ? f.total : 0)
-                    return [f.id, v?.plate || f.vehicleId, d?.name || f.driverId, new Date(f.time).toLocaleDateString(), f.station, f.kgs, f.rate, f.total, paid, f.total - paid, f.verified ? 'Yes' : 'No']
+                    const o = owners.find(ow => ow.id === f.ownerId)
+                    return [f.id, v?.plate || f.vehicleId, d?.name || f.driverId, new Date(f.time).toLocaleDateString(), f.station, f.kgs, f.rate, f.total, o?.business || '', f.verified ? 'Yes' : 'No']
                   })
                 )} className="p-4 rounded-xl bg-white border border-[#E2E6EB] text-left hover:bg-[#F9FAFB] transition-colors">
                   <p className="font-semibold text-[14px] text-[#111827]">⛽ Export All Fills</p>
-                  <p className="text-[11px] text-[#6B7280] mt-0.5">All fill entries with payment status</p>
+                  <p className="text-[11px] text-[#6B7280] mt-0.5">All fill entries with vehicle, driver, and owner</p>
                 </button>
-                <button onClick={() => expCSV('pending_payments.csv', ['Owner', 'Business', 'Pending Amount', 'Total Due', 'Paid', 'Vehicles', 'Last Fill'],
+                <button onClick={() => expCSV('pending_payments.csv', ['Owner', 'Business', 'Total Used', 'Total Paid', 'Pending', 'Vehicles', 'Last Fill'],
                   owners.map(o => {
                     const s = getOwnerStats(o.id)
-                    return s.pending > 0 ? [o.name, o.business, s.pending, s.used, s.paid, s.vehicles, s.lastFill ? new Date(s.lastFill).toLocaleDateString() : 'N/A'] : null
+                    return s.pending > 0 ? [o.name, o.business, s.used, s.paid, s.pending, s.vehicles, s.lastFill ? new Date(s.lastFill).toLocaleDateString() : 'N/A'] : null
                   }).filter((x): x is any[] => x !== null)
                 )} className="p-4 rounded-xl bg-white border border-[#E2E6EB] text-left hover:bg-[#F9FAFB] transition-colors">
                   <p className="font-semibold text-[14px] text-[#111827]">📊 Export Pending Payments</p>
                   <p className="text-[11px] text-[#6B7280] mt-0.5">Owners with outstanding amounts</p>
                 </button>
-                <button onClick={() => expCSV('payment_summary.csv', ['Owner', 'Business', 'Total Due', 'Paid', 'Pending', 'Collection %'],
+                <button onClick={() => expCSV('payment_summary.csv', ['Owner', 'Business', 'Total Used', 'Total Paid', 'Pending', 'Collection %'],
                   owners.map(o => {
                     const s = getOwnerStats(o.id)
                     return [o.name, o.business, s.used, s.paid, s.pending, s.used > 0 ? ((s.paid/s.used)*100).toFixed(0) + '%' : '0%']
