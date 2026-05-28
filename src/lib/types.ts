@@ -39,7 +39,7 @@ export interface Fill {
   vehicleId: string
   driverId: string
   time: string
-  station: 'VGL' | 'Adani' | 'Gujarat Gas'
+  station: string
   kgs: number
   rate: number
   total: number

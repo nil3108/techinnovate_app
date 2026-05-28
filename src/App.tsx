@@ -844,7 +844,7 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
 
   const [form, setForm] = useState({
     vehicleId: defaultVeh ? String(defaultVeh.id) : '',
-    station: 'VGL' as Fill['station'],
+    station: 'VGL',
     kgs: '',
     rate: '',
     odoReading: '',
@@ -1169,12 +1169,24 @@ function FillWizard({ lang, session, setView }: { lang: Language; session: any; 
                     <div>
                       <label className="text-[12px] text-[#6B7280] uppercase tracking-wider mb-1.5 block">{t('station', lang)}</label>
                       <select
-                        value={form.station}
-                        onChange={e => setForm(f => ({...f, station: e.target.value as Fill['station']}))}
+                        value={['VGL', 'Adani', 'Gujarat Gas', 'Other'].includes(form.station) ? form.station : 'Other'}
+                        onChange={e => {
+                          const val = e.target.value
+                          if (val === 'Other') setForm(f => ({...f, station: ''}))
+                          else setForm(f => ({...f, station: val}))
+                        }}
                         className="w-full h-[52px] px-4 bg-white border border-[#E2E6EB] rounded-xl text-[15px] focus:border-[#3B82F6] focus:outline-none"
                       >
-                        {['VGL', 'Adani', 'Gujarat Gas'].map(s => <option key={s} value={s}>{s}</option>)}
+                        {['VGL', 'Adani', 'Gujarat Gas', 'Other'].map(s => <option key={s} value={s}>{s}</option>)}
                       </select>
+                      {!['VGL', 'Adani', 'Gujarat Gas'].includes(form.station) && (
+                        <input
+                          value={form.station}
+                          onChange={e => setForm(f => ({...f, station: e.target.value}))}
+                          placeholder="Enter station name"
+                          className="w-full h-[52px] px-4 mt-2 bg-white border border-[#E2E6EB] rounded-xl text-[15px] focus:border-[#3B82F6] focus:outline-none"
+                        />
+                      )}
                     </div>
                     <div>
                       <label className="text-[12px] text-[#6B7280] uppercase tracking-wider mb-1.5 block">{t('kgs', lang)}</label>
