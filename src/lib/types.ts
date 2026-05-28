@@ -62,6 +62,7 @@ export interface Fill {
   pendingVehicleApproval?: boolean
   paid?: boolean
   paidAt?: string
+  paidAmount?: number
 }
 
 export interface Alert {
