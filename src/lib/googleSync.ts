@@ -57,16 +57,6 @@ export const googleSync = {
   },
 
   async saveFill(fill: Fill): Promise<boolean> {
-    const fills = storage.getFills()
-    
-    try {
-      storage.saveFills([...fills, fill])
-    } catch (e) {
-      console.warn('LocalStorage full, trimming old fills')
-      const recent = [...fills, fill].slice(-20)
-      localStorage.setItem('cng_fills', JSON.stringify(recent))
-    }
-    
     if (!this.enabled) return true
 
     try {

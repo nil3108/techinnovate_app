@@ -51,36 +51,25 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [syncKey, setSyncKey] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'failed'>('idle')
 
   useEffect(() => {
     const loadDataFromBackend = async () => {
-      console.log('loadDataFromBackend: online=', navigator.onLine, 'synced=', window.sessionStorage.getItem('synced'))
       if (!navigator.onLine) return
       
-      // Check for clear parameter
       const urlParams = new URLSearchParams(window.location.search)
       if (urlParams.get('clear') === 'data') {
-        localStorage.removeItem('cng_drivers')
-        localStorage.removeItem('cng_vehicles')
-        localStorage.removeItem('cng_fills')
-        localStorage.removeItem('cng_alerts')
+        for (const k of ['cng_drivers','cng_vehicles','cng_fills','cng_alerts','cng_owners']) localStorage.removeItem(k)
         window.sessionStorage.removeItem('synced')
         window.location.href = window.location.pathname
         return
       }
       
-      // Only sync once per session (check if already synced this session)
-      if (window.sessionStorage.getItem('synced')) return
-      window.sessionStorage.setItem('synced', 'true')
-      
+      setSyncStatus('syncing')
       try {
-        console.log('Fetching from backend...')
         const data = await googleSync.fetchAllData()
-        console.log('Backend data:', data)
         
         if (data?.success) {
-          console.log('Drivers from sheet:', data.drivers)
-          // Normalize keys from sheet (case-insensitive) and save
           if (data.drivers?.length > 0) {
             const localDrivers = storage.getDrivers()
             const sheetDrivers = data.drivers.map((d: any) => normalizeKeys(d, DRIVER_KEYS))
@@ -92,9 +81,6 @@ export default function App() {
             storage.saveVehicles([...localVehicles, ...sheetVehicles.filter((sv: any) => !localVehicles.find((lv: any) => lv.id === sv.id))])
           }
           if (data.fills?.length > 0) {
-            console.log('Fill keys:', Object.keys(data.fills[0] || {}))
-            console.log('First fill raw:', data.fills[0])
-            // Handle sheet where first column header might be ' ' instead of 'id'
             const parseGPS = (v: any): {lat: number; lng: number} | null => {
               if (!v) return null
               if (typeof v === 'object' && 'lat' in v && 'lng' in v) return v
@@ -108,8 +94,7 @@ export default function App() {
               const nf = normalizeKeys(f, FILL_KEYS)
               const id = nf.id || nf[' '] || 'fill_' + Date.now() + '_' + Math.random().toString(36).slice(2,8)
               return {
-                ...nf,
-                id,
+                ...nf, id,
                 videoUrl: nf.videoUrl && !nf.videoUrl.startsWith('data:') ? nf.videoUrl : '',
                 pumpPhotoUrl: nf.pumpPhotoUrl && !nf.pumpPhotoUrl.startsWith('data:') ? nf.pumpPhotoUrl : '',
                 receiptPhotoUrl: nf.receiptPhotoUrl && !nf.receiptPhotoUrl.startsWith('data:') ? nf.receiptPhotoUrl : '',
@@ -122,17 +107,20 @@ export default function App() {
             })
             const localFills = storage.getFills()
             storage.saveFills([...localFills, ...cleanFills.filter((nf: any) => !localFills.find((lf: any) => lf.id === nf.id))])
-            console.log('Cleaned fills sample:', cleanFills.slice(0,2).map((f: any) => ({id: f.id, video: f.videoUrl?.substring(0,60)})))
           }
           if (data.owners?.length > 0) {
-            storage.saveOwners(data.owners.map((o: any) => normalizeKeys(o, OWNER_KEYS)))
+            const localOwners = storage.getOwners()
+            const sheetOwners = data.owners.map((o: any) => normalizeKeys(o, OWNER_KEYS))
+            storage.saveOwners([...localOwners, ...sheetOwners.filter((so: any) => !localOwners.find((lo: any) => lo.id === so.id))])
           }
+          window.sessionStorage.setItem('synced', 'true')
+          setSyncStatus('synced')
           setSyncKey(k => k + 1)
         } else {
-          console.log('No data or failed:', data)
+          setSyncStatus('failed')
         }
       } catch (e) {
-        console.log('Backend sync error:', e)
+        setSyncStatus('failed')
       }
     }
     
@@ -209,6 +197,16 @@ export default function App() {
           <img src="logo.jpg" alt="Techinnovate" className="h-8" />
           
           <div className="flex items-center gap-2">
+            {syncStatus === 'syncing' && (
+              <div className="px-2.5 py-1 rounded-full bg-[#DBEAFE] border border-[#93C5FD]">
+                <span className="text-[10px] font-semibold text-[#1E40AF]">SYNCING</span>
+              </div>
+            )}
+            {syncStatus === 'failed' && (
+              <div className="px-2.5 py-1 rounded-full bg-[#FEE2E2] border border-[#FCA5A5]">
+                <span className="text-[10px] font-semibold text-[#991B1B]">SYNC FAILED</span>
+              </div>
+            )}
             {!isOnline && (
               <div className="px-2.5 py-1 rounded-full bg-[#FEF3C7] border border-[#FCD34D]">
                 <span className="text-[10px] font-semibold text-[#92400E]">OFFLINE</span>
@@ -246,7 +244,7 @@ export default function App() {
           {view === 'driver-dash' && session && <DriverDashboard lang={lang} session={session} setView={setView} syncKey={syncKey} key={'dd'+syncKey} />}
           {view === 'wizard' && session && <FillWizard lang={lang} session={session} setView={setView} syncKey={syncKey} key={'fw'+syncKey} />}
           {view === 'owner-dash' && session && <OwnerDashboard lang={lang} session={session} syncKey={syncKey} key={'od'+syncKey} />}
-          {view === 'admin-dash' && <AdminDashboard lang={lang} syncKey={syncKey} />}
+          {view === 'admin-dash' && <AdminDashboard lang={lang} syncKey={syncKey} syncStatus={syncStatus} />}
         </AnimatePresence>
       </main>
     </div>
@@ -2141,7 +2139,7 @@ function AddVehicleModal({ lang, ownerId, onClose }: { lang: Language; ownerId: 
   )
 }
 
-function AdminDashboard({ lang, syncKey }: { lang: Language; syncKey: number }) {
+function AdminDashboard({ lang, syncKey, syncStatus }: { lang: Language; syncKey: number; syncStatus: string }) {
   const [tab, setTab] = useState<string>('dashboard')
   const [expandedOwner, setExpandedOwner] = useState<string | null>(null)
   const [editCredit, setEditCredit] = useState<{id: string; val: string} | null>(null)
@@ -2348,6 +2346,11 @@ function AdminDashboard({ lang, syncKey }: { lang: Language; syncKey: number }) 
             <button onClick={() => window.location.reload()} className="w-full text-left px-3 py-2 rounded-lg text-[12px] text-[#6B7280] hover:bg-[#F5F6F8] flex items-center gap-2">
               <span>↻</span> <span>Refresh</span>
             </button>
+            <div className="px-3 pt-2 text-[10px] text-[#9CA3AF]">
+              {syncStatus === 'synced' && <span className="text-[#059669]">● Data synced</span>}
+              {syncStatus === 'failed' && <span className="text-[#991B1B]">● Sync failed — reload to retry</span>}
+              {syncStatus === 'syncing' && <span className="text-[#1E40AF]">● Syncing...</span>}
+            </div>
           </div>
         </div>
         <div className="flex-1 p-4 sm:p-5 max-w-full sm:max-w-[1000px]">
@@ -2365,6 +2368,9 @@ function AdminDashboard({ lang, syncKey }: { lang: Language; syncKey: number }) 
                 {KPI('Overdue Owners', String(overdueOwners.length), overdueOwners.length > 0 ? 'Payment overdue' : undefined)}
                 {KPI('Fraud Alerts', String(fraudAlerts.length), fraudAlerts.length > 0 ? 'Needs investigation' : undefined)}
                 {KPI('Total Collections', `₹${(totalPaidAmt/1000).toFixed(1)}k`, `${totalDue > 0 ? ((totalPaidAmt/totalDue)*100).toFixed(0) : '0'}% recovery`)}
+                {KPI('Total Drivers', String(drivers.length), `${drivers.filter(d => d.status === 'active').length} active`)}
+                {KPI('Total Vehicles', String(vehicles.length), `${vehicles.filter(v => v.status === 'active').length} active`)}
+                {KPI('Total Fills', String(fills.length), `${fills.filter(f => f.verified).length} verified`)}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
                 <div className="p-4 rounded-xl bg-white border border-[#E2E6EB]">
