@@ -1580,6 +1580,35 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                 </div>
               </div>
 
+              {/* Top Drivers Section */}
+              {(() => {
+                const topDrivers = drivers.map(d => {
+                  const dFills = fills.filter(f => f.driverId === d.id)
+                  const totalCost = dFills.reduce((s, f) => s + f.total, 0)
+                  return { ...d, fills: dFills.length, totalCost }
+                }).sort((a, b) => b.totalCost - a.totalCost).slice(0, 3)
+                
+                if (topDrivers.length === 0) return null
+                
+                return (
+                  <div className="mb-5">
+                    <h3 className="text-[12px] font-semibold text-[#6B7280] uppercase tracking-wider mb-3">Top Performing Drivers</h3>
+                    <div className="grid grid-cols-3 gap-2">
+                      {topDrivers.map((d, i) => (
+                        <div key={d.id} className="p-3 rounded-xl bg-white border border-[#E2E6EB] text-center">
+                          <div className={`w-8 h-8 mx-auto mb-2 rounded-full flex items-center justify-center text-[11px] font-bold ${i === 0 ? 'bg-[#FCD34D] text-[#92400E]' : i === 1 ? 'bg-[#E2E8F0] text-[#475569]' : 'bg-[#FECACA] text-[#991B1B]'}`}>
+                            {i + 1}
+                          </div>
+                          <p className="text-[12px] font-medium text-[#111827] truncate">{d.name}</p>
+                          <p className="text-[10px] text-[#6B7280]">{d.fills} fills</p>
+                          <p className="text-[11px] font-bold text-[#166534]">₹{d.totalCost.toLocaleString()}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
+
               {/* Recent Activity */}
               <div>
                 <h3 className="text-[12px] font-semibold text-[#6B7280] uppercase tracking-wider mb-3">Recent Fills</h3>
@@ -1677,33 +1706,144 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
 
           {/* DRIVERS TAB */}
           {tab === 'drivers' && (
-            <div className="space-y-3">
-              <button onClick={() => setShowAddDriver(true)} className="w-full h-10 rounded-lg bg-white border border-[#E2E6EB] flex items-center justify-center gap-2 hover:bg-[#F5F6F8]">
-                <Plus className="w-4 h-4 text-[#E10600]" />
-                <span className="text-[12px] font-medium">{t('addDriver', lang)}</span>
-              </button>
-              {drivers.map(d => {
-                const v = vehicles.find(veh => veh.plate === d.assignedVehicleId)
-                const dFills = fills.filter(f => f.driverId === d.id)
-                return (
-                  <div key={d.id} className="p-4 rounded-xl bg-white border border-[#E2E6EB]">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="font-medium text-[15px] text-[#111827]">{d.name}</p>
-                        <p className="text-[12px] text-[#6B7280]">Code: {d.code} • {v?.plate || 'No vehicle'}</p>
-                        <p className="text-[11px] text-[#6B7280]">{dFills.length} fills</p>
-                      </div>
-                      <button onClick={async () => {
-                        storage.saveDrivers(drivers.filter(x => x.id !== d.id))
-                        await googleSync.deleteDriver(d.id)
-                        setRefreshKey(k => k + 1)
-                      }} className="p-2 hover:bg-[#FEE2E2] rounded-lg">
-                        <Trash2 className="w-4 h-4 text-[#EF4444]" />
-                      </button>
+            <div className="space-y-4">
+              {/* Driver Leaderboard */}
+              <div className="p-4 rounded-xl bg-white border border-[#E2E6EB]">
+                <p className="text-[12px] font-semibold text-[#6B7280] uppercase mb-4">🏆 Driver Leaderboard</p>
+                {(() => {
+                  const driverStats = drivers.map(d => {
+                    const dFills = fills.filter(f => f.driverId === d.id)
+                    const totalFuel = dFills.reduce((s, f) => s + f.kgs, 0)
+                    const totalCost = dFills.reduce((s, f) => s + f.total, 0)
+                    const verifiedCount = dFills.filter(f => f.verified).length
+                    const verificationRate = dFills.length > 0 ? Math.round((verifiedCount / dFills.length) * 100) : 0
+                    const mismatches = dFills.filter(f => f.mismatch).length
+                    return { ...d, fills: dFills.length, totalFuel, totalCost, verificationRate, mismatches }
+                  }).sort((a, b) => b.fills - a.fills)
+                  
+                  if (driverStats.length === 0) {
+                    return <p className="text-[12px] text-[#6B7280] text-center py-4">No drivers yet</p>
+                  }
+                  
+                  return (
+                    <div className="space-y-3">
+                      {driverStats.slice(0, 5).map((d, i) => (
+                        <div key={d.id} className="flex items-center gap-3 p-3 rounded-lg bg-[#F5F6F8]">
+                          <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[12px] font-bold ${i === 0 ? 'bg-[#FCD34D] text-[#92400E]' : i === 1 ? 'bg-[#E2E8F0] text-[#475569]' : i === 2 ? 'bg-[#FECACA] text-[#991B1B]' : 'bg-white text-[#6B7280]'}`}>
+                            {i + 1}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-[14px] text-[#111827] truncate">{d.name}</p>
+                            <p className="text-[11px] text-[#6B7280]">{d.fills} fills • {d.totalFuel.toFixed(1)} kg • ₹{d.totalCost.toLocaleString()}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[12px] font-medium text-[#166534]">{d.verificationRate}% verified</p>
+                            {d.mismatches > 0 && <p className="text-[10px] text-[#991B1B]">{d.mismatches} alerts</p>}
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  </div>
-                )
-              })}
+                  )
+                })()}
+              </div>
+
+              {/* Driver Performance Table */}
+              <div className="p-4 rounded-xl bg-white border border-[#E2E6EB]">
+                <div className="flex items-center justify-between mb-4">
+                  <p className="text-[12px] font-semibold text-[#6B7280] uppercase">Driver Performance</p>
+                  <button onClick={() => setShowAddDriver(true)} className="px-3 py-1.5 rounded-lg bg-[#E10600] text-white text-[11px] font-medium">
+                    + Add Driver
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {(() => {
+                    const driverAnalytics = drivers.map(d => {
+                      const v = vehicles.find(veh => veh.plate === d.assignedVehicleId)
+                      const dFills = fills.filter(f => f.driverId === d.id)
+                      const totalFuel = dFills.reduce((s, f) => s + f.kgs, 0)
+                      const totalCost = dFills.reduce((s, f) => s + f.total, 0)
+                      const avgFuel = dFills.length > 0 ? (totalFuel / dFills.length) : 0
+                      const avgCost = dFills.length > 0 ? (totalCost / dFills.length) : 0
+                      const verifiedCount = dFills.filter(f => f.verified).length
+                      const verificationRate = dFills.length > 0 ? Math.round((verifiedCount / dFills.length) * 100) : 0
+                      const mismatches = dFills.filter(f => f.mismatch).length
+                      const fuelDrops = dFills.filter(f => f.fuelDropPercent > 20).length
+                      const thisMonthFills = dFills.filter(f => new Date(f.time).getMonth() === new Date().getMonth()).length
+                      
+                      return { 
+                        ...d, 
+                        vehicle: v,
+                        fills: dFills.length, 
+                        totalFuel, 
+                        totalCost, 
+                        avgFuel,
+                        avgCost,
+                        verificationRate,
+                        mismatches,
+                        fuelDrops,
+                        thisMonthFills
+                      }
+                    }).sort((a, b) => b.totalCost - a.totalCost)
+                    
+                    if (driverAnalytics.length === 0) {
+                      return (
+                        <div className="py-8 text-center">
+                          <Users className="w-10 h-10 text-[#D1D5DB] mx-auto mb-2" />
+                          <p className="text-[12px] text-[#6B7280]">No drivers yet</p>
+                        </div>
+                      )
+                    }
+                    
+                    return driverAnalytics.map(d => (
+                      <div key={d.id} className="p-3 rounded-xl bg-white border border-[#E2E6EB] hover:border-[#E10600] transition-colors">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <p className="font-medium text-[14px] text-[#111827]">{d.name}</p>
+                              <span className="px-2 py-0.5 rounded-full bg-[#F5F6F8] text-[10px] text-[#6B7280]">{d.code}</span>
+                              {d.mismatches > 0 && <span className="px-2 py-0.5 rounded-full bg-[#FEE2E2] text-[10px] text-[#991B1B]">{d.mismatches} alerts</span>}
+                            </div>
+                            <p className="text-[11px] text-[#6B7280] mb-2">{d.vehicle?.plate || 'No vehicle assigned'}</p>
+                            <div className="grid grid-cols-4 gap-2">
+                              <div className="text-center p-2 rounded-lg bg-[#F5F6F8]">
+                                <p className="text-[13px] font-bold text-[#111827]">{d.fills}</p>
+                                <p className="text-[9px] text-[#6B7280]">Total Fills</p>
+                              </div>
+                              <div className="text-center p-2 rounded-lg bg-[#F5F6F8]">
+                                <p className="text-[13px] font-bold text-[#111827]">{d.thisMonthFills}</p>
+                                <p className="text-[9px] text-[#6B7280]">This Month</p>
+                              </div>
+                              <div className="text-center p-2 rounded-lg bg-[#F5F6F8]">
+                                <p className="text-[13px] font-bold text-[#166534]">{d.verificationRate}%</p>
+                                <p className="text-[9px] text-[#6B7280]">Verified</p>
+                              </div>
+                              <div className="text-center p-2 rounded-lg bg-[#F5F6F8]">
+                                <p className="text-[13px] font-bold text-[#1E40AF]">₹{Math.round(d.avgCost)}</p>
+                                <p className="text-[9px] text-[#6B7280]">Avg Fill</p>
+                              </div>
+                            </div>
+                          </div>
+                          <button onClick={async () => {
+                            storage.saveDrivers(drivers.filter(x => x.id !== d.id))
+                            await googleSync.deleteDriver(d.id)
+                            setRefreshKey(k => k + 1)
+                          }} className="p-2 hover:bg-[#FEE2E2] rounded-lg ml-2">
+                            <Trash2 className="w-4 h-4 text-[#EF4444]" />
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t border-[#E2E6EB]">
+                          <span className="text-[10px] text-[#6B7280]">Total: ₹{d.totalCost.toLocaleString()}</span>
+                          <span className="text-[10px] text-[#6B7280]">•</span>
+                          <span className="text-[10px] text-[#6B7280]">{d.totalFuel.toFixed(1)} kg total</span>
+                          <span className="text-[10px] text-[#6B7280]">•</span>
+                          <span className="text-[10px] text-[#6B7280]">{d.avgFuel.toFixed(1)} kg avg</span>
+                          {d.fuelDrops > 0 && <span className="px-1.5 py-0.5 rounded bg-[#FEF3C7] text-[10px] text-[#92400E]">{d.fuelDrops} fuel drops</span>}
+                        </div>
+                      </div>
+                    ))
+                  })()}
+                </div>
+              </div>
             </div>
           )}
 
@@ -1752,25 +1892,65 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
 
           {/* ALERTS TAB */}
           {tab === 'alerts' && (
-            <div className="space-y-2">
-              {alerts.length === 0 ? (
-                <div className="py-16 text-center">
-                  <CheckCircle2 className="w-12 h-12 text-[#10B981] mx-auto mb-3" />
-                  <p className="text-[#6B7280]">No active alerts</p>
-                </div>
-              ) : alerts.map(alert => (
-                <div key={alert.id} className="p-4 rounded-xl bg-white border border-[#E2E6EB]">
-                  <div className="flex items-start gap-3">
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${alert.type === 'vehicle_override' ? 'bg-[#FEF3C7]' : 'bg-[#FEE2E2]'}`}>
-                      <AlertTriangle className={`w-4 h-4 ${alert.type === 'vehicle_override' ? 'text-[#92400E]' : 'text-[#991B1B]'}`} />
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-medium text-[14px] text-[#111827]">{alert.event}</p>
-                      <p className="text-[12px] text-[#6B7280]">{alert.user} • {new Date(alert.time).toLocaleString()}</p>
+            <div className="space-y-4">
+              {/* Driver Alert Summary */}
+              {(() => {
+                const driverAlertCounts = drivers.map(d => {
+                  const dAlerts = alerts.filter(a => a.user === d.name || a.user === d.id)
+                  const mismatches = dAlerts.filter(a => a.type === 'location_mismatch').length
+                  const fuelDrops = dAlerts.filter(a => a.type === 'fuel_drop').length
+                  const overrides = dAlerts.filter(a => a.type === 'vehicle_override').length
+                  return { ...d, totalAlerts: dAlerts.length, mismatches, fuelDrops, overrides }
+                }).filter(d => d.totalAlerts > 0).sort((a, b) => b.totalAlerts - a.totalAlerts)
+                
+                if (driverAlertCounts.length === 0) return null
+                
+                return (
+                  <div className="p-4 rounded-xl bg-white border border-[#E2E6EB]">
+                    <p className="text-[12px] font-semibold text-[#6B7280] uppercase mb-3">⚠️ Drivers with Alerts</p>
+                    <div className="space-y-2">
+                      {driverAlertCounts.map(d => (
+                        <div key={d.id} className="flex items-center justify-between p-2.5 rounded-lg bg-[#F5F6F8]">
+                          <div className="flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-full bg-[#FEE2E2] text-[#991B1B] flex items-center justify-center text-[10px] font-bold">{d.totalAlerts}</span>
+                            <span className="text-[13px] font-medium text-[#111827]">{d.name}</span>
+                          </div>
+                          <div className="flex gap-1.5">
+                            {d.mismatches > 0 && <span className="px-2 py-0.5 rounded-full bg-[#FEE2E2] text-[10px] text-[#991B1B]">{d.mismatches} loc</span>}
+                            {d.fuelDrops > 0 && <span className="px-2 py-0.5 rounded-full bg-[#FEF3C7] text-[10px] text-[#92400E]">{d.fuelDrops} fuel</span>}
+                            {d.overrides > 0 && <span className="px-2 py-0.5 rounded-full bg-[#DBEAFE] text-[10px] text-[#1E40AF]">{d.overrides} vehicle</span>}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
+                )
+              })()}
+
+              {/* All Alerts */}
+              <div>
+                <p className="text-[12px] font-semibold text-[#6B7280] uppercase mb-3">All Alerts</p>
+                <div className="space-y-2">
+                  {alerts.length === 0 ? (
+                    <div className="py-12 text-center">
+                      <CheckCircle2 className="w-10 h-10 text-[#10B981] mx-auto mb-2" />
+                      <p className="text-[12px] text-[#6B7280]">No active alerts</p>
+                    </div>
+                  ) : alerts.map(alert => (
+                    <div key={alert.id} className="p-4 rounded-xl bg-white border border-[#E2E6EB]">
+                      <div className="flex items-start gap-3">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${alert.type === 'vehicle_override' ? 'bg-[#FEF3C7]' : alert.type === 'fuel_drop' ? 'bg-[#FEF3C7]' : 'bg-[#FEE2E2]'}`}>
+                          <AlertTriangle className={`w-4 h-4 ${alert.type === 'vehicle_override' ? 'text-[#92400E]' : alert.type === 'fuel_drop' ? 'text-[#92400E]' : 'text-[#991B1B]'}`} />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-[14px] text-[#111827]">{alert.event}</p>
+                          <p className="text-[12px] text-[#6B7280]">{alert.user} • {new Date(alert.time).toLocaleString()}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
             </div>
           )}
         </div>
