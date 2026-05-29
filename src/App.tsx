@@ -1400,6 +1400,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
   const [refreshKey, setRefreshKey] = useState(0)
   const [creditReqAmount, setCreditReqAmount] = useState('')
   const [creditReqNote, setCreditReqNote] = useState('')
+  const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null)
 
   const ownerId = session.ownerId
   const allFills = storage.getFills()
@@ -1738,33 +1739,106 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
 
           {/* VEHICLES TAB */}
           {tab === 'vehicles' && (
-            <div className="space-y-3">
+            <div className="space-y-4">
+              {/* Vehicle Summary Stats */}
+              {(() => {
+                const totalVehicleFills = vehicles.reduce((sum, v) => sum + fills.filter(f => String(f.vehicleId) === String(v.id) || f.vehicleId === v.plate).length, 0)
+                const totalKmTraveled = vehicles.reduce((sum, v) => sum + (v.currentOdo - v.initialOdo), 0)
+                const totalFuel = fills.reduce((sum, f) => sum + f.kgs, 0)
+                const overallEfficiency = totalFuel > 0 ? (totalKmTraveled / totalFuel).toFixed(1) : '0'
+                
+                return (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div className="p-3 rounded-xl bg-white border border-[#E2E6EB] text-center">
+                      <p className="text-[10px] text-[#6B7280]">Total Vehicles</p>
+                      <p className="text-[18px] font-bold text-[#111827]">{vehicles.length}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-white border border-[#E2E6EB] text-center">
+                      <p className="text-[10px] text-[#6B7280]">Total KM</p>
+                      <p className="text-[16px] font-bold text-[#1E40AF]">{(totalKmTraveled/1000).toFixed(1)}k</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-white border border-[#E2E6EB] text-center">
+                      <p className="text-[10px] text-[#6B7280]">Total Fuel</p>
+                      <p className="text-[16px] font-bold text-[#92400E]">{totalFuel.toFixed(0)} kg</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-white border border-[#E2E6EB] text-center">
+                      <p className="text-[10px] text-[#6B7280]">Efficiency</p>
+                      <p className="text-[16px] font-bold text-[#166534]">{overallEfficiency} km/kg</p>
+                    </div>
+                  </div>
+                )
+              })()}
+
               <button onClick={() => setShowAddVehicle(true)} className="w-full h-10 rounded-lg bg-white border border-[#E2E6EB] flex items-center justify-center gap-2 hover:bg-[#F5F6F8]">
                 <Plus className="w-4 h-4 text-[#E10600]" />
                 <span className="text-[12px] font-medium">{t('addVehicle', lang)}</span>
               </button>
-              {vehicles.map(v => {
-                const vFills = fills.filter(f => String(f.vehicleId) === String(v.id) || f.vehicleId === v.plate)
-                const spent = vFills.reduce((s, f) => s + f.total, 0)
-                return (
-                  <div key={v.id} className="p-4 rounded-xl bg-white border border-[#E2E6EB]">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="font-mono font-bold text-[16px] text-[#111827]">{v.plate}</p>
-                        <p className="text-[13px] text-[#6B7280]">{v.model}</p>
-                        <p className="text-[11px] text-[#6B7280]">{vFills.length} fills • ₹{spent.toLocaleString()}</p>
+
+              {/* Vehicle Cards */}
+              <div className="space-y-3">
+                {vehicles.map(v => {
+                  const vFills = fills.filter(f => String(f.vehicleId) === String(v.id) || f.vehicleId === v.plate)
+                  const spent = vFills.reduce((s, f) => s + f.total, 0)
+                  const totalFuel = vFills.reduce((s, f) => s + f.kgs, 0)
+                  const kmTraveled = v.currentOdo - v.initialOdo
+                  const efficiency = totalFuel > 0 ? (kmTraveled / totalFuel).toFixed(1) : '0'
+                  const lastFill = vFills.length > 0 ? vFills.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())[0] : null
+                  const daysSinceFill = lastFill ? Math.floor((Date.now() - new Date(lastFill.time).getTime()) / (1000 * 60 * 60 * 24)) : null
+                  
+                  return (
+                    <div key={v.id} className="p-4 rounded-xl bg-white border border-[#E2E6EB] hover:border-[#E10600] transition-colors cursor-pointer" onClick={() => setSelectedVehicle(v)}>
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="font-mono font-bold text-[16px] text-[#111827]">{v.plate}</p>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] ${v.status === 'active' ? 'bg-[#DCFCE7] text-[#166534]' : 'bg-[#FEE2E2] text-[#991B1B]'}`}>
+                              {v.status}
+                            </span>
+                          </div>
+                          <p className="text-[13px] text-[#6B7280] mb-2">{v.model}</p>
+                          
+                          {/* Stats Grid */}
+                          <div className="grid grid-cols-4 gap-2 mb-2">
+                            <div className="text-center p-2 rounded-lg bg-[#F5F6F8]">
+                              <p className="text-[13px] font-bold text-[#111827]">{vFills.length}</p>
+                              <p className="text-[9px] text-[#6B7280]">Fills</p>
+                            </div>
+                            <div className="text-center p-2 rounded-lg bg-[#F5F6F8]">
+                              <p className="text-[13px] font-bold text-[#991B1B]">₹{(spent/1000).toFixed(1)}k</p>
+                              <p className="text-[9px] text-[#6B7280]">Cost</p>
+                            </div>
+                            <div className="text-center p-2 rounded-lg bg-[#F5F6F8]">
+                              <p className="text-[13px] font-bold text-[#1E40AF]">{(kmTraveled/1000).toFixed(0)}k</p>
+                              <p className="text-[9px] text-[#6B7280]">KM</p>
+                            </div>
+                            <div className="text-center p-2 rounded-lg bg-[#F5F6F8]">
+                              <p className="text-[13px] font-bold text-[#166534]">{efficiency}</p>
+                              <p className="text-[9px] text-[#6B7280]">km/kg</p>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-3 text-[10px] text-[#6B7280]">
+                            <span>Odometer: {v.currentOdo.toLocaleString()}</span>
+                            {daysSinceFill !== null && (
+                              <span className={daysSinceFill > 7 ? 'text-[#991B1B]' : ''}>
+                                Last fill: {daysSinceFill === 0 ? 'Today' : daysSinceFill === 1 ? 'Yesterday' : `${daysSinceFill} days ago`}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <button onClick={async (e) => {
+                          e.stopPropagation()
+                          storage.saveVehicles(vehicles.filter(x => x.id !== v.id))
+                          await googleSync.deleteVehicle(v.id)
+                          setRefreshKey(k => k + 1)
+                        }} className="p-1.5 hover:bg-[#FEE2E2] rounded-lg ml-2">
+                          <Trash2 className="w-4 h-4 text-[#EF4444]" />
+                        </button>
                       </div>
-                      <button onClick={async () => {
-                        storage.saveVehicles(vehicles.filter(x => x.id !== v.id))
-                        await googleSync.deleteVehicle(v.id)
-                        setRefreshKey(k => k + 1)
-                      }} className="p-1.5 hover:bg-[#FEE2E2] rounded-lg">
-                        <Trash2 className="w-4 h-4 text-[#EF4444]" />
-                      </button>
                     </div>
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
             </div>
           )}
 
@@ -2019,6 +2093,133 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
           )}
         </div>
       </div>
+
+      {/* Vehicle Detail Modal */}
+      {selectedVehicle && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur flex items-center justify-center p-4" onClick={() => setSelectedVehicle(null)}>
+          <div className="bg-white rounded-[24px] border border-[#E2E6EB] p-6 w-full max-w-[500px] shadow-xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            {(() => {
+              const v = selectedVehicle
+              const vFills = fills.filter(f => String(f.vehicleId) === String(v.id) || f.vehicleId === v.plate)
+              const spent = vFills.reduce((s, f) => s + f.total, 0)
+              const totalFuel = vFills.reduce((s, f) => s + f.kgs, 0)
+              const kmTraveled = v.currentOdo - v.initialOdo
+              const efficiency = totalFuel > 0 ? (kmTraveled / totalFuel).toFixed(1) : '0'
+              const avgCost = vFills.length > 0 ? (spent / vFills.length) : 0
+              const avgFuel = vFills.length > 0 ? (totalFuel / vFills.length) : 0
+              const monthFills = vFills.filter(f => new Date(f.time).getMonth() === new Date().getMonth())
+              const monthSpent = monthFills.reduce((s, f) => s + f.total, 0)
+              
+              // Last 7 fills for mini chart
+              const lastFills = vFills.slice(-7)
+              const maxFuel = Math.max(...lastFills.map(f => f.kgs), 1)
+              
+              return (
+                <>
+                  <div className="flex items-center justify-between mb-5">
+                    <div>
+                      <h3 className="text-[20px] font-bold text-[#111827]">{v.plate}</h3>
+                      <p className="text-[14px] text-[#6B7280]">{v.model}</p>
+                    </div>
+                    <button onClick={() => setSelectedVehicle(null)} className="p-2 hover:bg-[#F5F6F8] rounded-lg">
+                      <X className="w-5 h-5 text-[#6B7280]" />
+                    </button>
+                  </div>
+
+                  {/* Stats Grid */}
+                  <div className="grid grid-cols-2 gap-3 mb-5">
+                    <div className="p-3 rounded-xl bg-[#F5F6F8]">
+                      <p className="text-[11px] text-[#6B7280]">Total Fills</p>
+                      <p className="text-[20px] font-bold text-[#111827]">{vFills.length}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-[#F5F6F8]">
+                      <p className="text-[11px] text-[#6B7280]">Total Cost</p>
+                      <p className="text-[20px] font-bold text-[#991B1B]">₹{spent.toLocaleString()}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-[#F5F6F8]">
+                      <p className="text-[11px] text-[#6B7280]">KM Traveled</p>
+                      <p className="text-[20px] font-bold text-[#1E40AF]">{kmTraveled.toLocaleString()}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-[#F5F6F8]">
+                      <p className="text-[11px] text-[#6B7280]">Efficiency</p>
+                      <p className="text-[20px] font-bold text-[#166534]">{efficiency} <span className="text-[12px]">km/kg</span></p>
+                    </div>
+                  </div>
+
+                  {/* Efficiency Analysis */}
+                  <div className="p-4 rounded-xl bg-white border border-[#E2E6EB] mb-5">
+                    <p className="text-[12px] font-semibold text-[#6B7280] uppercase mb-3">Efficiency Analysis</p>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-[12px]">
+                        <span className="text-[#6B7280]">Average per Fill</span>
+                        <span className="font-medium">₹{Math.round(avgCost)} • {avgFuel.toFixed(1)} kg</span>
+                      </div>
+                      <div className="flex justify-between text-[12px]">
+                        <span className="text-[#6B7280]">Cost per KM</span>
+                        <span className="font-medium">₹{kmTraveled > 0 ? (spent / kmTraveled).toFixed(2) : '0'}</span>
+                      </div>
+                      <div className="flex justify-between text-[12px]">
+                        <span className="text-[#6B7280]">This Month</span>
+                        <span className="font-medium">{monthFills.length} fills • ₹{monthSpent.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between text-[12px]">
+                        <span className="text-[#6B7280]">Odometer</span>
+                        <span className="font-medium">{v.currentOdo.toLocaleString()} km</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Recent Fills Mini Chart */}
+                  {lastFills.length > 0 && (
+                    <div className="mb-5">
+                      <p className="text-[12px] font-semibold text-[#6B7280] uppercase mb-3">Recent Fills (Last {lastFills.length})</p>
+                      <div className="flex items-end gap-1 h-16">
+                        {lastFills.map((f, i) => (
+                          <div key={f.id} className="flex-1 flex flex-col items-center gap-1">
+                            <div className="w-full bg-[#E2E6EB] rounded-t-sm relative" style={{ height: '100%' }}>
+                              <div 
+                                className="absolute bottom-0 left-0 right-0 rounded-t-sm bg-[#E10600]" 
+                                style={{ height: `${(f.kgs / maxFuel) * 100}%` }}
+                              />
+                            </div>
+                            <span className="text-[8px] text-[#6B7280] truncate w-full text-center">{new Date(f.time).getDate()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recent Fills List */}
+                  <div>
+                    <p className="text-[12px] font-semibold text-[#6B7280] uppercase mb-3">Recent Fills</p>
+                    <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                      {vFills.slice(-5).reverse().map(f => {
+                        const d = drivers.find(drv => String(drv.id) === String(f.driverId))
+                        return (
+                          <div key={f.id} className="p-3 rounded-lg bg-[#F5F6F8] text-[11px]">
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium text-[#111827]">₹{f.total}</span>
+                              <span className="text-[#6B7280]">{f.kgs} kg</span>
+                            </div>
+                            <div className="flex items-center justify-between mt-1">
+                              <span className="text-[#6B7280]">{d?.name || 'Unknown'}</span>
+                              <span className="text-[#9CA3AF]">{new Date(f.time).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <button onClick={() => setSelectedVehicle(null)} className="w-full mt-5 h-12 rounded-xl bg-[#E10600] text-white font-medium">
+                    Close
+                  </button>
+                </>
+              )
+            })()}
+          </div>
+        </div>
+      )}
 
       {/* Credit Request Modal */}
       {showCreditRequest && (
