@@ -1426,6 +1426,31 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
   const lastPaymentDate = owner?.lastPaymentDate
   const creditFrozen = owner?.creditFrozen || false
   const riskScore = owner?.riskScore || 'green'
+  
+  // Monthly calculations
+  const currentMonth = new Date().getMonth()
+  const currentYear = new Date().getFullYear()
+  const monthFills = fills.filter(f => {
+    const fillDate = new Date(f.time)
+    return fillDate.getMonth() === currentMonth && fillDate.getFullYear() === currentYear
+  })
+  const monthFillsCount = monthFills.length
+  const monthSpent = monthFills.reduce((s, f) => s + f.total, 0)
+  const avgFillCost = fills.length > 0 ? totalSpent / fills.length : 0
+  const avgDailySpent = (() => {
+    if (fills.length === 0) return 0
+    const firstFill = fills.reduce((oldest, f) => new Date(f.time) < new Date(oldest.time) ? f : oldest, fills[0])
+    const daysSinceFirst = Math.max(1, Math.ceil((Date.now() - new Date(firstFill.time).getTime()) / (1000 * 60 * 60 * 24)))
+    return totalSpent / daysSinceFirst
+  })()
+  
+  // Overdue check (>30 days since last payment and outstanding > 0)
+  const isPaymentOverdue = (() => {
+    if (!lastPaymentDate || outstanding <= 0) return false
+    const daysSinceLastPayment = Math.floor((Date.now() - new Date(lastPaymentDate).getTime()) / (1000 * 60 * 60 * 24))
+    return daysSinceLastPayment > 30
+  })()
+  const daysOverdue = lastPaymentDate ? Math.floor((Date.now() - new Date(lastPaymentDate).getTime()) / (1000 * 60 * 60 * 24)) : 0
 
   // Weekly data
   const last7Days = Array.from({length: 7}, (_, i) => {
@@ -1514,6 +1539,18 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
             </div>
           )}
 
+          {/* Overdue Payment Alert */}
+          {isPaymentOverdue && (
+            <div className="mb-4 p-3 rounded-xl border bg-[#FEE2E2] border-[#FCA5A5]">
+              <p className="text-[12px] font-medium text-[#991B1B]">
+                ⚠️ Payment Overdue — {daysOverdue} days since last payment
+              </p>
+              <p className="text-[11px] text-[#991B1B] mt-1">
+                Outstanding: ₹{outstanding.toLocaleString()} | Last paid: {new Date(lastPaymentDate!).toLocaleDateString()}
+              </p>
+            </div>
+          )}
+
           {/* DASHBOARD TAB */}
           {tab === 'dashboard' && (
             <>
@@ -1576,6 +1613,33 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                         {riskScore === 'red' ? 'High' : riskScore === 'yellow' ? 'Medium' : 'Low'}
                       </span>
                     </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Monthly Summary */}
+              <div className="mb-5">
+                <h3 className="text-[12px] font-semibold text-[#6B7280] uppercase tracking-wider mb-3">📅 Monthly Summary</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+                  <div className="p-4 rounded-xl bg-white border border-[#E2E6EB] text-center">
+                    <p className="text-[11px] text-[#6B7280] mb-1">Total Fills</p>
+                    <p className="text-[22px] font-bold text-[#111827]">{monthFillsCount}</p>
+                    <p className="text-[9px] text-[#9CA3AF]">this month</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-white border border-[#E2E6EB] text-center">
+                    <p className="text-[11px] text-[#6B7280] mb-1">Total Spent</p>
+                    <p className="text-[18px] font-bold text-[#991B1B]">₹{(monthSpent/1000).toFixed(1)}k</p>
+                    <p className="text-[9px] text-[#9CA3AF]">this month</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-white border border-[#E2E6EB] text-center">
+                    <p className="text-[11px] text-[#6B7280] mb-1">Avg per Fill</p>
+                    <p className="text-[18px] font-bold text-[#1E40AF]">₹{Math.round(avgFillCost)}</p>
+                    <p className="text-[9px] text-[#9CA3AF]">lifetime avg</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-white border border-[#E2E6EB] text-center">
+                    <p className="text-[11px] text-[#6B7280] mb-1">Avg Daily</p>
+                    <p className="text-[18px] font-bold text-[#166534]">₹{Math.round(avgDailySpent)}</p>
+                    <p className="text-[9px] text-[#9CA3AF]">per day</p>
                   </div>
                 </div>
               </div>
