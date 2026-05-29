@@ -117,20 +117,24 @@ function initDemoData() {
   }
 }
 
+function safeParse<T>(raw: string | null, fallback: T): T {
+  try { return JSON.parse(raw || '') as T } catch { return fallback }
+}
+
 initDemoData()
 
 export const storage = {
-  getOwners: (): Owner[] => JSON.parse(localStorage.getItem(KEYS.OWNERS) || '[]'),
+  getOwners: (): Owner[] => safeParse(localStorage.getItem(KEYS.OWNERS), []),
   saveOwners: (owners: Owner[]) => localStorage.setItem(KEYS.OWNERS, JSON.stringify(owners)),
   
-  getDrivers: (): Driver[] => JSON.parse(localStorage.getItem(KEYS.DRIVERS) || '[]'),
+  getDrivers: (): Driver[] => safeParse(localStorage.getItem(KEYS.DRIVERS), []),
   saveDrivers: (drivers: Driver[]) => localStorage.setItem(KEYS.DRIVERS, JSON.stringify(drivers)),
   
-  getVehicles: (): Vehicle[] => JSON.parse(localStorage.getItem(KEYS.VEHICLES) || '[]'),
+  getVehicles: (): Vehicle[] => safeParse(localStorage.getItem(KEYS.VEHICLES), []),
   saveVehicles: (vehicles: Vehicle[]) => localStorage.setItem(KEYS.VEHICLES, JSON.stringify(vehicles)),
   
   getFills: (): Fill[] => {
-    const fills: Fill[] = JSON.parse(localStorage.getItem(KEYS.FILLS) || '[]')
+    const fills: Fill[] = safeParse<Fill[]>(localStorage.getItem(KEYS.FILLS), [])
     return fills.map(f => ({
       ...f,
       pumpGPS: parseGPS(f.pumpGPS),
@@ -142,7 +146,6 @@ export const storage = {
     try {
       localStorage.setItem(KEYS.FILLS, JSON.stringify(fills))
     } catch (e) {
-      // Quota exceeded - remove data URLs and keep only metadata
       const trimmed = fills.map(f => ({
         ...f,
         videoUrl: f.videoUrl?.startsWith('data:') ? '' : f.videoUrl,
@@ -151,57 +154,56 @@ export const storage = {
         odoPhotoUrl: f.odoPhotoUrl?.startsWith('data:') ? '' : f.odoPhotoUrl,
       }))
       try {
-        localStorage.setItem(KEYS.FILLS, JSON.stringify(trimmed.slice(-50))) // Keep last 50
+        localStorage.setItem(KEYS.FILLS, JSON.stringify(trimmed.slice(-50)))
       } catch (e2) {
-        // Last resort - clear and keep only recent
         localStorage.setItem(KEYS.FILLS, JSON.stringify(trimmed.slice(-10)))
       }
     }
   },
   
-  getAlerts: (): Alert[] => JSON.parse(localStorage.getItem(KEYS.ALERTS) || '[]'),
+  getAlerts: (): Alert[] => safeParse(localStorage.getItem(KEYS.ALERTS), []),
   saveAlerts: (alerts: Alert[]) => localStorage.setItem(KEYS.ALERTS, JSON.stringify(alerts)),
   
-  getOfflineQueue: (): Fill[] => JSON.parse(localStorage.getItem(KEYS.OFFLINE_QUEUE) || '[]'),
+  getOfflineQueue: (): Fill[] => safeParse(localStorage.getItem(KEYS.OFFLINE_QUEUE), []),
   addToOfflineQueue: (fill: Fill) => {
-    const queue = JSON.parse(localStorage.getItem(KEYS.OFFLINE_QUEUE) || '[]')
+    const queue = safeParse<Fill[]>(localStorage.getItem(KEYS.OFFLINE_QUEUE), [])
     queue.push(fill)
     localStorage.setItem(KEYS.OFFLINE_QUEUE, JSON.stringify(queue))
   },
   clearOfflineQueue: () => localStorage.setItem(KEYS.OFFLINE_QUEUE, '[]'),
   
-  getSession: () => JSON.parse(localStorage.getItem(KEYS.SESSION) || 'null'),
+  getSession: (): any => safeParse<any>(localStorage.getItem(KEYS.SESSION), null),
   setSession: (session: any) => localStorage.setItem(KEYS.SESSION, JSON.stringify(session)),
   clearSession: () => localStorage.removeItem(KEYS.SESSION),
   
   getLanguage: (): string => localStorage.getItem(KEYS.LANGUAGE) || 'en',
   setLanguage: (lang: string) => localStorage.setItem(KEYS.LANGUAGE, lang),
 
-  getAuditLogs: (): AuditLog[] => JSON.parse(localStorage.getItem(KEYS.AUDIT_LOGS) || '[]'),
+  getAuditLogs: (): AuditLog[] => safeParse(localStorage.getItem(KEYS.AUDIT_LOGS), []),
   saveAuditLogs: (logs: AuditLog[]) => localStorage.setItem(KEYS.AUDIT_LOGS, JSON.stringify(logs)),
   addAuditLog: (log: AuditLog) => {
-    const logs = JSON.parse(localStorage.getItem(KEYS.AUDIT_LOGS) || '[]')
+    const logs = safeParse<AuditLog[]>(localStorage.getItem(KEYS.AUDIT_LOGS), [])
     logs.push(log)
     if (logs.length > 500) logs.splice(0, logs.length - 500)
     localStorage.setItem(KEYS.AUDIT_LOGS, JSON.stringify(logs))
   },
 
-  getNotifications: (): Notification[] => JSON.parse(localStorage.getItem(KEYS.NOTIFICATIONS) || '[]'),
+  getNotifications: (): Notification[] => safeParse(localStorage.getItem(KEYS.NOTIFICATIONS), []),
   saveNotifications: (notifs: Notification[]) => localStorage.setItem(KEYS.NOTIFICATIONS, JSON.stringify(notifs)),
   addNotification: (n: Notification) => {
-    const notifs = JSON.parse(localStorage.getItem(KEYS.NOTIFICATIONS) || '[]')
+    const notifs = safeParse<Notification[]>(localStorage.getItem(KEYS.NOTIFICATIONS), [])
     notifs.push(n)
     if (notifs.length > 200) notifs.splice(0, notifs.length - 200)
     localStorage.setItem(KEYS.NOTIFICATIONS, JSON.stringify(notifs))
   },
 
-  getCreditActions: (): CreditAction[] => JSON.parse(localStorage.getItem(KEYS.CREDIT_ACTIONS) || '[]'),
+  getCreditActions: (): CreditAction[] => safeParse(localStorage.getItem(KEYS.CREDIT_ACTIONS), []),
   saveCreditActions: (actions: CreditAction[]) => localStorage.setItem(KEYS.CREDIT_ACTIONS, JSON.stringify(actions)),
 
-  getPaymentEntries: (): PaymentEntry[] => JSON.parse(localStorage.getItem(KEYS.PAYMENT_ENTRIES) || '[]'),
+  getPaymentEntries: (): PaymentEntry[] => safeParse(localStorage.getItem(KEYS.PAYMENT_ENTRIES), []),
   savePaymentEntries: (entries: PaymentEntry[]) => localStorage.setItem(KEYS.PAYMENT_ENTRIES, JSON.stringify(entries)),
 
-  getSettings: (): Record<string, any> => JSON.parse(localStorage.getItem(KEYS.SETTINGS) || '{}'),
+  getSettings: (): Record<string, any> => safeParse<Record<string, any>>(localStorage.getItem(KEYS.SETTINGS), {}),
   saveSettings: (s: Record<string, any>) => localStorage.setItem(KEYS.SETTINGS, JSON.stringify(s)),
 }
 

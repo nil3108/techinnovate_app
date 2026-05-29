@@ -155,8 +155,9 @@ export default function App() {
       if (queue.length > 0) {
         const fills = storage.getFills()
         storage.saveFills([...fills, ...queue])
-        queue.forEach(f => googleSync.saveFill(f))
-        storage.clearOfflineQueue()
+        Promise.all(queue.map(f => googleSync.saveFill(f).catch(() => false))).then(results => {
+          if (results.every(Boolean)) storage.clearOfflineQueue()
+        })
       }
     }
 
@@ -193,7 +194,7 @@ export default function App() {
     <div className="min-h-screen bg-[#F5F6F8] text-[#111827] flex flex-col">
       {/* Header */}
       <header className="sticky top-0 z-40 bg-white border-b border-gray-100">
-        <div className="max-w-[480px] mx-auto px-4 h-14 flex items-center justify-between">
+        <div className={`mx-auto px-4 h-14 flex items-center justify-between ${view === 'admin-dash' ? 'max-w-full px-6' : 'max-w-[480px]'}`}>
           <img src="logo.jpg" alt="Techinnovate" className="h-8" />
           
           <div className="flex items-center gap-2">
@@ -234,7 +235,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 max-w-[480px] w-full mx-auto">
+      <main className={`flex-1 w-full mx-auto ${view === 'admin-dash' ? '' : 'max-w-[480px]'}`}>
         <AnimatePresence mode="wait">
           {view === 'welcome' && <WelcomeView lang={lang} setView={setView} />}
           {view === 'driver-login' && <DriverLogin lang={lang} setView={setView} setSession={setSession} />}
@@ -438,6 +439,7 @@ function OwnerLogin({ lang, setView, setSession }: { lang: Language; setView: (v
 function AdminLogin({ lang, setView, setSession }: { lang: Language; setView: (v: View) => void; setSession: (s: any) => void }) {
   const [email, setEmail] = useState('admin@cng.com')
   const [password, setPassword] = useState('admin123')
+  const [error, setError] = useState('')
 
   const handleLogin = () => {
     if (email === 'admin@cng.com' && password === 'admin123') {
@@ -445,6 +447,8 @@ function AdminLogin({ lang, setView, setSession }: { lang: Language; setView: (v
       storage.setSession(session)
       setSession(session)
       setView('admin-dash')
+    } else {
+      setError('Invalid admin credentials')
     }
   }
 
@@ -472,6 +476,7 @@ function AdminLogin({ lang, setView, setSession }: { lang: Language; setView: (v
           onChange={(e) => setPassword(e.target.value)}
           className="w-full h-[52px] px-4 bg-white border border-[#E2E6EB] rounded-xl text-[15px] focus:border-[#8B5CF6] focus:outline-none"
         />
+        {error && <p className="text-[12px] text-[#991B1B] text-center">{error}</p>}
         <button
           onClick={handleLogin}
           className="w-full h-[52px] bg-[#8B5CF6] text-white font-semibold rounded-xl mt-2 hover:bg-[#7C3AED] active:scale-[0.98] transition-all"
@@ -841,6 +846,7 @@ function FillWizard({ lang, session, setView, syncKey }: { lang: Language; sessi
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showVehicleWarning, setShowVehicleWarning] = useState(false)
   const [pendingVehicleSelection, setPendingVehicleSelection] = useState('')
+  const [refreshKey, setRefreshKey] = useState(0)
 
   const vehicles = storage.getVehicles()
   const drivers = storage.getDrivers()
@@ -917,7 +923,7 @@ function FillWizard({ lang, session, setView, syncKey }: { lang: Language; sessi
       fuelDropPercent = ((expectedKgs - kgsNum) / expectedKgs) * 100
     }
 
-    const fillId = 'fill' + Date.now()
+    const fillId = 'fill' + Date.now() + '_' + Math.random().toString(36).slice(2, 8)
     const fillDate = new Date().toISOString().split('T')[0]
     const folderName = `${vehicle.plate}_${fillDate}`
     const timestamp = Date.now()
@@ -1017,14 +1023,14 @@ function FillWizard({ lang, session, setView, syncKey }: { lang: Language; sessi
         // Alerts — always created regardless of upload/sync outcome
         const alertsList = storage.getAlerts()
         if (mismatch) {
-          alertsList.push({ id: 'alert' + Date.now(), time: new Date().toISOString(), event: `Location mismatch: ${Math.round(distanceDiff)}m`, user: session.name, type: 'location_mismatch', ownerId: session.ownerId, resolved: false })
+          alertsList.push({ id: 'alert_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), time: new Date().toISOString(), event: `Location mismatch: ${Math.round(distanceDiff)}m`, user: session.name, type: 'location_mismatch', ownerId: session.ownerId, resolved: false })
         }
         if (fuelDropPercent > 20) {
-          alertsList.push({ id: 'alert' + Date.now() + 1, time: new Date().toISOString(), event: `Fuel drop ${fuelDropPercent.toFixed(1)}%`, user: session.name, type: 'fuel_drop', ownerId: session.ownerId, resolved: false })
+          alertsList.push({ id: 'alert_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), time: new Date().toISOString(), event: `Fuel drop ${fuelDropPercent.toFixed(1)}%`, user: session.name, type: 'fuel_drop', ownerId: session.ownerId, resolved: false })
         }
         if (pendingApproval) {
           console.log('[Alert] Creating vehicle_override alert')
-          alertsList.push({ id: 'alert' + Date.now() + 2, time: new Date().toISOString(), event: `Vehicle override: ${driver?.name || session.name} used ${vehicle.plate} instead of assigned vehicle (${assignedPlate})`, user: session.name, type: 'vehicle_override', ownerId: session.ownerId, resolved: false })
+          alertsList.push({ id: 'alert_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), time: new Date().toISOString(), event: `Vehicle override: ${driver?.name || session.name} used ${vehicle.plate} instead of assigned vehicle (${assignedPlate})`, user: session.name, type: 'vehicle_override', ownerId: session.ownerId, resolved: false })
         }
         if (mismatch || fuelDropPercent > 20 || pendingApproval) {
           storage.saveAlerts(alertsList)
@@ -1390,6 +1396,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
   const [editingDriverVehicle, setEditingDriverVehicle] = useState<Driver | null>(null)
   const [editVehicleId, setEditVehicleId] = useState('')
   const [lightboxMedia, setLightboxMedia] = useState<{ url: string; label: string } | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   const ownerId = session.ownerId
   const allFills = storage.getFills()
@@ -1501,7 +1508,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                     <button onClick={async () => {
                       storage.saveDrivers(drivers.filter(x => x.id !== d.id))
                       await googleSync.deleteDriver(d.id)
-                      window.location.reload()
+                      setRefreshKey(k => k + 1)
                     }} className="p-2 hover:bg-[#F5F6F8] rounded-lg">
                       <Trash2 className="w-4 h-4 text-[#9CA3AF]" />
                     </button>
@@ -1562,7 +1569,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                     onClick={() => {
                       const updated = fills.map(f => f.id === fill.id ? { ...f, verified: !f.verified } : f)
                       storage.saveFills(updated)
-                      window.location.reload()
+                      setRefreshKey(k => k + 1)
                     }}
                     className={`px-3 py-1.5 rounded-lg text-[12px] font-medium whitespace-nowrap transition-colors ${
                       fill.verified ? 'bg-[#DCFCE7] text-[#166534]' : 'bg-[#F5F6F8] text-[#6B7280] hover:bg-[#E2E6EB]'
@@ -1617,15 +1624,13 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                             body: JSON.stringify(sheetPayload),
                           }).then(r => r.text()).then(t => {
                             console.log('[Approve-Fills] Sheet response:', t)
-                            window.location.reload()
                           }).catch(e => {
                             console.error('[Approve-Fills] Sheet error:', e)
-                            window.location.reload()
                           })
                         } else {
                           console.log('[Approve-Fills] No approved fill found!')
-                          window.location.reload()
                         }
+                        setRefreshKey(k => k + 1)
                       }}
                       className="px-3 py-1.5 rounded-lg text-[12px] font-medium whitespace-nowrap bg-[#E10600] text-white hover:bg-[#B80500] transition-colors"
                     >
@@ -1683,7 +1688,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                   <button onClick={async () => {
                     storage.saveDrivers(drivers.filter(x => x.id !== d.id))
                     await googleSync.deleteDriver(d.id)
-                    window.location.reload()
+                    setRefreshKey(k => k + 1)
                   }} className="p-2 hover:bg-[#FEE2E2] rounded-lg">
                     <Trash2 className="w-4 h-4 text-[#EF4444]" />
                   </button>
@@ -1713,7 +1718,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                     <button onClick={async () => {
                       storage.saveVehicles(vehicles.filter(x => x.id !== v.id))
                       await googleSync.deleteVehicle(v.id)
-                      window.location.reload()
+                      setRefreshKey(k => k + 1)
                     }} className="p-1.5 hover:bg-[#FEE2E2] rounded-lg">
                       <Trash2 className="w-4 h-4 text-[#EF4444]" />
                     </button>
@@ -1814,7 +1819,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                     onClick={() => {
                       const updated = fills.map(f => f.id === fill.id ? { ...f, verified: !f.verified } : f)
                       storage.saveFills(updated)
-                      window.location.reload()
+                      setRefreshKey(k => k + 1)
                     }}
                     className={`px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors ${
                       fill.verified ? 'bg-[#DCFCE7] text-[#166534]' : 'bg-[#F5F6F8] text-[#6B7280] hover:bg-[#E2E6EB]'
@@ -1913,15 +1918,13 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                             body: JSON.stringify(sheetPayload),
                           }).then(r => r.text()).then(t => {
                             console.log('[Approve] Sheet response:', t)
-                            window.location.reload()
                           }).catch(e => {
                             console.error('[Approve] Sheet error:', e)
-                            window.location.reload()
                           })
                         } else {
                           console.log('[Approve] No pending fill found!')
-                          window.location.reload()
                         }
+                        setRefreshKey(k => k + 1)
                         const allAlerts = storage.getAlerts()
                         storage.saveAlerts(allAlerts.map(a => a.id === alert.id ? { ...a, resolved: true } : a))
                       }}
@@ -1939,7 +1942,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                     onClick={() => {
                       const allAlerts = storage.getAlerts()
                       storage.saveAlerts(allAlerts.map(a => a.id === alert.id ? { ...a, resolved: true } : a))
-                      window.location.reload()
+                      setRefreshKey(k => k + 1)
                     }}
                     className="text-[11px] px-2.5 py-1 rounded-lg bg-white hover:bg-[#F5F6F8] transition-colors text-[#6B7280]"
                   >
@@ -1970,10 +1973,10 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
 
       {/* Add Driver Modal */}
       {showAddDriver && (
-        <AddDriverModal lang={lang} ownerId={session.ownerId} onClose={() => setShowAddDriver(false)} />
+        <AddDriverModal lang={lang} ownerId={session.ownerId} onClose={() => { setShowAddDriver(false); setRefreshKey(k => k + 1) }} />
       )}
       {showAddVehicle && (
-        <AddVehicleModal lang={lang} ownerId={session.ownerId} onClose={() => setShowAddVehicle(false)} />
+        <AddVehicleModal lang={lang} ownerId={session.ownerId} onClose={() => { setShowAddVehicle(false); setRefreshKey(k => k + 1) }} />
       )}
       {editingDriver && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur flex items-center justify-center p-4" onClick={() => setEditingDriver(null)}>
@@ -2039,7 +2042,7 @@ function AddDriverModal({ lang, ownerId, onClose }: { lang: Language; ownerId: s
   const handleSave = () => {
     const plate = vehicleId || null
     const newDriver = {
-      id: 'drv' + Date.now(),
+      id: 'drv' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
       name,
       code,
       assignedVehicleId: plate,
@@ -2092,7 +2095,7 @@ function AddVehicleModal({ lang, ownerId, onClose }: { lang: Language; ownerId: 
 
   const handleSave = async () => {
     const newVehicle = {
-      id: 'veh' + Date.now(),
+      id: 'veh' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
       plate,
       model,
       initialOdo: parseInt(odo),
@@ -2117,7 +2120,6 @@ function AddVehicleModal({ lang, ownerId, onClose }: { lang: Language; ownerId: 
     })
     
     onClose()
-    window.location.reload()
   }
 
   return (
@@ -2157,17 +2159,18 @@ function AdminDashboard({ lang, syncKey, syncStatus }: { lang: Language; syncKey
   const [fraudFilter, setFraudFilter] = useState<'all' | 'active' | 'resolved'>('all')
   const [notifFilter, setNotifFilter] = useState<'all' | 'unread'>('all')
   const [auditFilter, setAuditFilter] = useState('all')
+  const [refreshKey, setRefreshKey] = useState(0)
 
-  const owners = useMemo(() => storage.getOwners(), [syncKey])
-  const drivers = useMemo(() => storage.getDrivers(), [syncKey])
-  const vehicles = useMemo(() => storage.getVehicles(), [syncKey])
-  const fills = useMemo(() => storage.getFills(), [syncKey])
-  const alerts = useMemo(() => storage.getAlerts(), [syncKey])
-  const auditLogs = useMemo(() => storage.getAuditLogs(), [syncKey])
-  const notifications = useMemo(() => storage.getNotifications(), [syncKey])
-  const creditActions = useMemo(() => storage.getCreditActions(), [syncKey])
-  const paymentEntries = useMemo(() => storage.getPaymentEntries(), [syncKey])
-  const settings = useMemo(() => storage.getSettings(), [syncKey])
+  const owners = useMemo(() => storage.getOwners(), [syncKey + refreshKey])
+  const drivers = useMemo(() => storage.getDrivers(), [syncKey + refreshKey])
+  const vehicles = useMemo(() => storage.getVehicles(), [syncKey + refreshKey])
+  const fills = useMemo(() => storage.getFills(), [syncKey + refreshKey])
+  const alerts = useMemo(() => storage.getAlerts(), [syncKey + refreshKey])
+  const auditLogs = useMemo(() => storage.getAuditLogs(), [syncKey + refreshKey])
+  const notifications = useMemo(() => storage.getNotifications(), [syncKey + refreshKey])
+  const creditActions = useMemo(() => storage.getCreditActions(), [syncKey + refreshKey])
+  const paymentEntries = useMemo(() => storage.getPaymentEntries(), [syncKey + refreshKey])
+  const settings = useMemo(() => storage.getSettings(), [syncKey + refreshKey])
 
   const todayFills = fills.filter(f => new Date(f.time).toDateString() === new Date().toDateString())
   const totalDue = fills.reduce((s, f) => s + f.total, 0)
@@ -2489,17 +2492,17 @@ function AdminDashboard({ lang, syncKey, syncStatus }: { lang: Language; syncKey
                         </div>
                         <div className="shrink-0 flex flex-wrap gap-1">
                           {o.status === 'active' ? (
-                            <button onClick={() => { storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, status: 'inactive' as const } : x)); addAuditLog('block_owner', `Blocked ${o.business}`); addNotification('owner', `${o.business} blocked`, 'warning'); window.location.reload() }}
+                            <button onClick={() => { storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, status: 'inactive' as const } : x)); addAuditLog('block_owner', `Blocked ${o.business}`); addNotification('owner', `${o.business} blocked`, 'warning'); setRefreshKey(k => k + 1) }}
                               className="px-2.5 py-1 rounded-lg bg-[#FEE2E2] text-[#991B1B] text-[10px] font-medium">Block</button>
                           ) : (
-                            <button onClick={() => { storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, status: 'active' as const } : x)); addAuditLog('unblock_owner', `Unblocked ${o.business}`); window.location.reload() }}
+                            <button onClick={() => { storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, status: 'active' as const } : x)); addAuditLog('unblock_owner', `Unblocked ${o.business}`); setRefreshKey(k => k + 1) }}
                               className="px-2.5 py-1 rounded-lg bg-[#DCFCE7] text-[#166534] text-[10px] font-medium">Unblock</button>
                           )}
                           {o.creditFrozen ? (
-                            <button onClick={() => { storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, creditFrozen: false } : x)); addAuditLog('unfreeze_credit', `Unfroze credit for ${o.business}`); window.location.reload() }}
+                            <button onClick={() => { storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, creditFrozen: false } : x)); addAuditLog('unfreeze_credit', `Unfroze credit for ${o.business}`); setRefreshKey(k => k + 1) }}
                               className="px-2.5 py-1 rounded-lg bg-[#DBEAFE] text-[#1E40AF] text-[10px] font-medium">Unfreeze</button>
                           ) : (
-                            <button onClick={() => { storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, creditFrozen: true } : x)); addAuditLog('freeze_credit', `Froze credit for ${o.business}`); addNotification('credit', `${o.business} credit frozen`, 'critical'); window.location.reload() }}
+                            <button onClick={() => { storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, creditFrozen: true } : x)); addAuditLog('freeze_credit', `Froze credit for ${o.business}`); addNotification('credit', `${o.business} credit frozen`, 'critical'); setRefreshKey(k => k + 1) }}
                               className="px-2.5 py-1 rounded-lg bg-[#FEF3C7] text-[#92400E] text-[10px] font-medium">Freeze</button>
                           )}
                           <button onClick={() => setEditCredit({ id: o.id, val: String(o.creditLimit || '') })} className="px-2.5 py-1 rounded-lg bg-[#DBEAFE] text-[#1E40AF] text-[10px] font-medium">Limit</button>
@@ -2519,7 +2522,7 @@ function AdminDashboard({ lang, syncKey, syncStatus }: { lang: Language; syncKey
                               <span className="text-[11px] text-[#6B7280]">₹</span>
                               <input value={editCredit.val} onChange={e => setEditCredit({ ...editCredit, val: e.target.value })}
                                 className="flex-1 min-w-[120px] h-9 px-3 bg-white border border-[#E2E6EB] rounded-lg text-[12px]" placeholder="Credit limit" />
-                              <button onClick={() => { storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, creditLimit: parseInt(editCredit.val) || 0 } : x)); setEditCredit(null); addAuditLog('set_credit_limit', `Set limit ₹${editCredit.val} for ${o.business}`); window.location.reload() }}
+                              <button onClick={() => { storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, creditLimit: parseInt(editCredit.val) || 0 } : x)); setEditCredit(null); addAuditLog('set_credit_limit', `Set limit ₹${editCredit.val} for ${o.business}`); setRefreshKey(k => k + 1) }}
                                 className="px-3 h-9 rounded-lg bg-[#E10600] text-white text-[11px] font-medium">Save</button>
                               <button onClick={() => setEditCredit(null)} className="px-3 h-9 rounded-lg bg-[#F5F6F8] text-[#6B7280] text-[11px]">Cancel</button>
                             </div>
@@ -2528,7 +2531,7 @@ function AdminDashboard({ lang, syncKey, syncStatus }: { lang: Language; syncKey
                             <div className="flex items-center gap-2 flex-wrap">
                               <input value={editNotes.val} onChange={e => setEditNotes({ ...editNotes, val: e.target.value })}
                                 className="flex-1 min-w-[120px] h-9 px-3 bg-white border border-[#E2E6EB] rounded-lg text-[12px]" placeholder="Private note..." />
-                              <button onClick={() => { storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, adminNotes: editNotes.val } : x)); setEditNotes(null); addAuditLog('add_note', `Added note to ${o.business}`); window.location.reload() }}
+                              <button onClick={() => { storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, adminNotes: editNotes.val } : x)); setEditNotes(null); addAuditLog('add_note', `Added note to ${o.business}`); setRefreshKey(k => k + 1) }}
                                 className="px-3 h-9 rounded-lg bg-[#E10600] text-white text-[11px] font-medium">Save</button>
                               <button onClick={() => setEditNotes(null)} className="px-3 h-9 rounded-lg bg-[#F5F6F8] text-[#6B7280] text-[11px]">Cancel</button>
                             </div>
@@ -2599,7 +2602,7 @@ function AdminDashboard({ lang, syncKey, syncStatus }: { lang: Language; syncKey
                       addAuditLog('issue_credit', `${creditType} credit ₹${amt} to ${o?.business || creditOwner}`)
                       addNotification('credit', `₹${amt} ${creditType} credit issued to ${o?.business || creditOwner}`, 'info')
                       setCreditOwner(''); setCreditAmount(''); setCreditNote('')
-                      window.location.reload()
+                      setRefreshKey(k => k + 1)
                     }} disabled={!creditOwner || !creditAmount}
                       className="w-full h-10 rounded-lg bg-[#059669] text-white text-[12px] font-medium disabled:opacity-50">Issue Credit</button>
                   </div>
@@ -2710,7 +2713,7 @@ function AdminDashboard({ lang, syncKey, syncStatus }: { lang: Language; syncKey
                                       setPayOwner(null)
                                       addAuditLog('mark_paid', `₹${amt} payment from ${o.business}`)
                                       addNotification('payment', `₹${amt} received from ${o.business}`, 'info')
-                                      window.location.reload()
+                                      setRefreshKey(k => k + 1)
                                     }
                                   }} className="px-2.5 h-8 rounded-lg bg-[#059669] text-white text-[11px] font-medium">Confirm</button>
                                   <button onClick={() => setPayOwner(null)} className="px-2 h-8 rounded-lg bg-[#F5F6F8] text-[#6B7280] text-[11px]">✕</button>
@@ -2856,10 +2859,10 @@ function AdminDashboard({ lang, syncKey, syncStatus }: { lang: Language; syncKey
                         <div className="shrink-0 flex gap-1.5 flex-wrap">
                           {!a.resolved && (
                             <>
-                              <button onClick={() => { storage.saveAlerts(alerts.map(x => x.id === a.id ? { ...x, resolved: true } : x)); addAuditLog('resolve_alert', `Resolved ${a.type} alert: ${a.event}`); window.location.reload() }}
+                              <button onClick={() => { storage.saveAlerts(alerts.map(x => x.id === a.id ? { ...x, resolved: true } : x)); addAuditLog('resolve_alert', `Resolved ${a.type} alert: ${a.event}`); setRefreshKey(k => k + 1) }}
                                 className="px-2.5 py-1 rounded-lg bg-white border border-[#E2E6EB] text-[10px] font-medium text-[#6B7280]">Resolve</button>
                               {o && (
-                                <button onClick={() => { storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, status: 'inactive' as const } : x)); addAuditLog('freeze_account', `Froze ${o.business} due to fraud alert`); addNotification('fraud', `${o.business} frozen due to ${a.type}`, 'critical'); window.location.reload() }}
+                                <button onClick={() => { storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, status: 'inactive' as const } : x)); addAuditLog('freeze_account', `Froze ${o.business} due to fraud alert`); addNotification('fraud', `${o.business} frozen due to ${a.type}`, 'critical'); setRefreshKey(k => k + 1) }}
                                   className="px-2.5 py-1 rounded-lg bg-[#FEE2E2] text-[#991B1B] text-[10px] font-medium">Freeze Owner</button>
                               )}
                             </>
@@ -2935,7 +2938,7 @@ function AdminDashboard({ lang, syncKey, syncStatus }: { lang: Language; syncKey
                     >{f.charAt(0).toUpperCase() + f.slice(1)}</button>
                   ))}
                   {unreadNotifs > 0 && (
-                    <button onClick={() => { storage.saveNotifications(notifications.map(n => ({ ...n, read: true }))); window.location.reload() }}
+                    <button onClick={() => { storage.saveNotifications(notifications.map(n => ({ ...n, read: true }))); setRefreshKey(k => k + 1) }}
                       className="px-3 py-1.5 rounded-lg text-[11px] font-medium bg-[#DBEAFE] text-[#1E40AF]">Mark All Read</button>
                   )}
                 </div>
@@ -2952,7 +2955,7 @@ function AdminDashboard({ lang, syncKey, syncStatus }: { lang: Language; syncKey
                         </div>
                       </div>
                       {!n.read && (
-                        <button onClick={() => { storage.saveNotifications(notifications.map(x => x.id === n.id ? { ...x, read: true } : x)); window.location.reload() }}
+                        <button onClick={() => { storage.saveNotifications(notifications.map(x => x.id === n.id ? { ...x, read: true } : x)); setRefreshKey(k => k + 1) }}
                           className="px-2.5 py-1 rounded-lg bg-white border border-[#E2E6EB] text-[10px] font-medium text-[#6B7280]">Read</button>
                       )}
                     </div>
