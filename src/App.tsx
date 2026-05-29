@@ -194,7 +194,7 @@ export default function App() {
     <div className="min-h-screen bg-[#F5F6F8] text-[#111827] flex flex-col">
       {/* Header */}
       <header className="sticky top-0 z-40 bg-white border-b border-gray-100">
-        <div className={`mx-auto px-4 h-14 flex items-center justify-between ${view === 'admin-dash' ? 'max-w-full px-6' : 'max-w-[480px]'}`}>
+        <div className={`mx-auto px-4 h-14 flex items-center justify-between ${view === 'admin-dash' || view === 'owner-dash' ? 'max-w-full px-6' : 'max-w-[480px]'}`}>
           <img src="logo.jpg" alt="Techinnovate" className="h-8" />
           
           <div className="flex items-center gap-2">
@@ -235,7 +235,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className={`flex-1 w-full mx-auto ${view === 'admin-dash' ? '' : 'max-w-[480px]'}`}>
+      <main className={`flex-1 w-full mx-auto ${view === 'admin-dash' || view === 'owner-dash' ? '' : 'max-w-[480px]'}`}>
         <AnimatePresence mode="wait">
           {view === 'welcome' && <WelcomeView lang={lang} setView={setView} />}
           {view === 'driver-login' && <DriverLogin lang={lang} setView={setView} setSession={setSession} />}
@@ -1388,15 +1388,18 @@ function FillWizard({ lang, session, setView, syncKey }: { lang: Language; sessi
 }
 
 function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: any; syncKey: number }) {
-  const [tab, setTab] = useState<'home' | 'fills' | 'vehicles' | 'drivers' | 'media' | 'alerts'>('home')
+  const [tab, setTab] = useState<'dashboard' | 'fills' | 'vehicles' | 'drivers' | 'payments' | 'alerts'>('dashboard')
   const [showAddDriver, setShowAddDriver] = useState(false)
   const [showAddVehicle, setShowAddVehicle] = useState(false)
+  const [showCreditRequest, setShowCreditRequest] = useState(false)
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null)
   const [editCode, setEditCode] = useState('')
   const [editingDriverVehicle, setEditingDriverVehicle] = useState<Driver | null>(null)
   const [editVehicleId, setEditVehicleId] = useState('')
   const [lightboxMedia, setLightboxMedia] = useState<{ url: string; label: string } | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [creditReqAmount, setCreditReqAmount] = useState('')
+  const [creditReqNote, setCreditReqNote] = useState('')
 
   const ownerId = session.ownerId
   const allFills = storage.getFills()
@@ -1406,555 +1409,429 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
   const allVehicles = storage.getVehicles()
   const vehicles = allVehicles.filter(v => v.ownerId === ownerId)
   const alerts = storage.getAlerts().filter(a => !a.resolved && a.ownerId === ownerId)
+  const paymentEntries = storage.getPaymentEntries().filter(p => p.ownerId === ownerId)
+  const owner = storage.getOwners().find(o => o.id === ownerId)
 
   const todayFills = fills.filter(f => new Date(f.time).toDateString() === new Date().toDateString())
   const pendingVerifications = fills.filter(f => !f.verified)
   const totalSpent = fills.reduce((s, f) => s + f.total, 0)
+  const todaySpent = todayFills.reduce((s, f) => s + f.total, 0)
+  
+  // Credit calculations
+  const creditLimit = owner?.creditLimit || 0
+  const creditUsed = totalSpent - (owner?.totalPaid || 0)
+  const creditRemaining = Math.max(0, creditLimit - creditUsed)
+  const totalPaid = owner?.totalPaid || 0
+  const outstanding = Math.max(0, creditUsed)
+  const lastPaymentDate = owner?.lastPaymentDate
+  const creditFrozen = owner?.creditFrozen || false
+  const riskScore = owner?.riskScore || 'green'
+
+  // Weekly data
+  const last7Days = Array.from({length: 7}, (_, i) => {
+    const d = new Date()
+    d.setDate(d.getDate() - (6 - i))
+    return d.toISOString().split('T')[0]
+  })
+  const dailySpent = last7Days.map(day => 
+    fills.filter(f => f.time.startsWith(day)).reduce((s, f) => s + f.total, 0)
+  )
+
+  const nav = [
+    { key: 'dashboard', label: 'Dashboard', icon: '📊' },
+    { key: 'fills', label: 'Fills', icon: '⛽' },
+    { key: 'vehicles', label: 'Vehicles', icon: '🚛' },
+    { key: 'drivers', label: 'Drivers', icon: '👷' },
+    { key: 'payments', label: 'Payments', icon: '💳' },
+    { key: 'alerts', label: 'Alerts', icon: '🔔' },
+  ]
+
+  const KPI = (label: string, value: string, sub?: string, color?: string) => (
+    <div className="p-3 sm:p-4 rounded-xl bg-white border border-[#E2E6EB]">
+      <p className={`text-lg sm:text-xl font-bold ${color || 'text-[#111827]'}`}>{value}</p>
+      <p className="text-[11px] text-[#6B7280] mt-0.5">{label}</p>
+      {sub && <p className="text-[10px] text-[#9CA3AF] mt-0.5">{sub}</p>}
+    </div>
+  )
+
+  const MiniBar = ({ data }: { data: { label: string; value: number; color: string }[] }) => (
+    <div className="flex items-end gap-1 h-16">
+      {data.map((d, i) => (
+        <div key={i} className="flex-1 flex flex-col items-center gap-1">
+          <div className="w-full bg-[#E2E6EB] rounded-t-sm relative" style={{ height: '100%' }}>
+            <div className="absolute bottom-0 left-0 right-0 rounded-t-sm transition-all duration-500" 
+              style={{ 
+                height: `${Math.max(0, Math.min(100, (d.value / Math.max(...data.map(x => x.value || 1)) * 100)))}%`,
+                backgroundColor: d.color 
+              }} 
+            />
+          </div>
+          <span className="text-[9px] text-[#6B7280]">{d.label}</span>
+        </div>
+      ))}
+    </div>
+  )
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-5">
-      <div className="mb-6">
-        <h1 className="text-[24px] font-bold text-[#111827]">Dashboard</h1>
-        <p className="text-[#6B7280] text-[14px]">{session.name}</p>
+    <div className="min-h-screen bg-[#F5F6F8]">
+      {/* Mobile nav */}
+      <div className="flex sm:hidden gap-1 p-3 bg-white border-b border-[#E2E6EB] overflow-x-auto">
+        {nav.map(item => (
+          <button key={item.key} onClick={() => setTab(item.key as any)}
+            className={`shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-medium ${tab === item.key ? 'bg-[#E10600] text-white' : 'bg-[#F5F6F8] text-[#6B7280]'}`}
+          >{item.icon} {item.label}</button>
+        ))}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 mb-6">
-        {[
-          { label: 'Total Vehicles', value: vehicles.length, icon: Car, color: 'bg-[#3B82F6]' },
-          { label: 'Total Drivers', value: drivers.length, icon: Users, color: 'bg-[#10B981]' },
-          { label: 'Today\'s Fills', value: todayFills.length, icon: Fuel, color: 'bg-[#F59E0B]' },
-          { label: 'Pending', value: pendingVerifications.length, icon: AlertTriangle, color: 'bg-[#EF4444]' },
-        ].map(stat => (
-          <div key={stat.label} className="p-4 rounded-2xl bg-white border border-[#E2E6EB] shadow-sm">
-            <div className={`w-10 h-10 rounded-xl ${stat.color} flex items-center justify-center mb-3 shadow-lg`}>
-              <stat.icon className="w-5 h-5 text-white" />
+      <div className="flex flex-col sm:flex-row">
+        {/* Desktop sidebar */}
+        <div className="hidden sm:flex sm:flex-col w-[200px] shrink-0 bg-white border-r border-[#E2E6EB] p-3 gap-0.5">
+          <p className="text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider px-3 pb-3 pt-2">Owner Panel</p>
+          <p className="px-3 pb-2 text-[12px] font-medium text-[#111827] truncate">{owner?.business || session.name}</p>
+          {nav.map(item => (
+            <button key={item.key} onClick={() => setTab(item.key as any)}
+              className={`w-full text-left px-3 py-2 rounded-lg text-[12px] font-medium flex items-center gap-2 ${tab === item.key ? 'bg-[#FDE8E8] text-[#E10600]' : 'text-[#6B7280] hover:bg-[#F5F6F8]'}`}
+            >
+              <span>{item.icon}</span>
+              <span>{item.label}</span>
+            </button>
+          ))}
+          <div className="mt-auto pt-4 border-t border-[#E2E6EB]">
+            <button onClick={() => setRefreshKey(k => k + 1)} className="w-full text-left px-3 py-2 rounded-lg text-[12px] text-[#6B7280] hover:bg-[#F5F6F8] flex items-center gap-2">
+              <span>↻</span> <span>Refresh</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Content area */}
+        <div className="flex-1 p-4 sm:p-5 max-w-full sm:max-w-[1000px]">
+          {/* Credit Alert Banner */}
+          {(creditFrozen || creditUsed > creditLimit * 0.9) && (
+            <div className={`mb-4 p-3 rounded-xl border ${creditFrozen ? 'bg-[#FEE2E2] border-[#FCA5A5]' : 'bg-[#FEF3C7] border-[#FCD34D]'}`}>
+              <p className={`text-[12px] font-medium ${creditFrozen ? 'text-[#991B1B]' : 'text-[#92400E]'}`}>
+                {creditFrozen ? '⚠️ Credit Frozen — Contact Admin' : `⚠️ Credit ${Math.round((creditUsed / creditLimit) * 100)}% used`}
+              </p>
             </div>
-            <p className="text-[22px] font-bold text-[#111827]">{stat.value}</p>
-            <p className="text-[12px] text-[#6B7280]">{stat.label}</p>
-          </div>
-        ))}
-      </div>
+          )}
 
-      <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-        {[
-          { key: 'home', label: 'Home', icon: BarChart3 },
-          { key: 'fills', label: t('fills', lang), icon: Fuel },
-          { key: 'media', label: 'Media', icon: Camera },
-          { key: 'vehicles', label: t('vehicles', lang), icon: Car },
-          { key: 'drivers', label: t('drivers', lang), icon: Users },
-          { key: 'alerts', label: t('alerts', lang), icon: AlertTriangle },
-        ].map(item => (
-          <button
-            key={item.key}
-            onClick={() => setTab(item.key as any)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-[14px] font-medium whitespace-nowrap transition-all ${
-              tab === item.key 
-                ? 'bg-[#E10600] text-white' 
-                : 'bg-white text-[#6B7280] border border-[#E2E6EB] hover:bg-[#F5F6F8]'
-            }`}
-          >
-            <item.icon className="w-4 h-4" />
-            {item.label}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'home' && (
-        <div className="space-y-5">
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { label: 'Vehicles', value: vehicles.length, icon: Car, color: 'text-blue-400' },
-              { label: 'Drivers', value: drivers.length, icon: Users, color: 'text-emerald-400' },
-              { label: 'Total Fills', value: fills.length, icon: Fuel, color: 'text-amber-400' },
-              { label: 'Total Spent', value: `₹${(totalSpent/1000).toFixed(1)}k`, icon: BarChart3, color: 'text-violet-400' },
-            ].map(stat => (
-              <div key={stat.label} className="p-4 rounded-2xl bg-white border border-[#E2E6EB] shadow-sm">
-                <stat.icon className={`w-5 h-5 ${stat.color} mb-2`} />
-                <p className="text-[24px] font-bold text-[#111827]">{stat.value}</p>
-                <p className="text-[12px] text-[#6B7280]">{stat.label}</p>
+          {/* DASHBOARD TAB */}
+          {tab === 'dashboard' && (
+            <>
+              <h1 className="text-xl sm:text-[22px] font-bold mb-4 text-[#111827]">Dashboard</h1>
+              
+              {/* Credit Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-5">
+                {KPI('Credit Limit', `₹${(creditLimit/1000).toFixed(1)}k`)}
+                {KPI('Credit Used', `₹${(creditUsed/1000).toFixed(1)}k`, undefined, creditUsed > creditLimit * 0.8 ? 'text-[#991B1B]' : 'text-[#1E40AF]')}
+                {KPI('Remaining', `₹${(creditRemaining/1000).toFixed(1)}k`, undefined, creditRemaining < creditLimit * 0.2 ? 'text-[#991B1B]' : 'text-[#166534]')}
+                {KPI('Total Paid', `₹${(totalPaid/1000).toFixed(1)}k`)}
+                {KPI('Outstanding', `₹${(outstanding/1000).toFixed(1)}k`, undefined, outstanding > 0 ? 'text-[#991B1B]' : 'text-[#166534]')}
+                {KPI("Today's Fuel", `₹${(todaySpent/1000).toFixed(1)}k`)}
+                {KPI('Total Fills', String(fills.length))}
+                {KPI('Pending Verify', String(pendingVerifications.length), undefined, pendingVerifications.length > 0 ? 'text-[#92400E]' : undefined)}
               </div>
-            ))}
-          </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <button onClick={() => setShowAddDriver(true)} className="h-[48px] rounded-xl bg-white border border-[#E2E6EB] flex items-center justify-center gap-2 hover:bg-[#F5F6F8] transition-colors">
-              <Plus className="w-4 h-4 text-[#E10600]" />
-              <span className="text-[14px] font-medium text-[#111827]">{t('addDriver', lang)}</span>
-            </button>
-            <button onClick={() => setShowAddVehicle(true)} className="h-[48px] rounded-xl bg-white border border-[#E2E6EB] flex items-center justify-center gap-2 hover:bg-[#F5F6F8] transition-colors">
-              <Plus className="w-4 h-4 text-[#E10600]" />
-              <span className="text-[14px] font-medium text-[#111827]">{t('addVehicle', lang)}</span>
-            </button>
-          </div>
+              {/* Request Credit Button */}
+              <div className="mb-5">
+                <button onClick={() => setShowCreditRequest(true)} disabled={creditFrozen}
+                  className="w-full sm:w-auto px-4 py-2 rounded-lg bg-[#E10600] text-white text-[12px] font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {creditFrozen ? 'Credit Frozen' : 'Request Credit Increase'}
+                </button>
+                {lastPaymentDate && (
+                  <p className="text-[11px] text-[#6B7280] mt-2">Last payment: {new Date(lastPaymentDate).toLocaleDateString()}</p>
+                )}
+              </div>
 
-          <div>
-            <h3 className="text-[13px] font-semibold text-[#6B7280] uppercase tracking-wider mb-3">Drivers</h3>
-            <div className="space-y-2">
-              {drivers.map(d => {
-                const v = vehicles.find(veh => veh.plate === d.assignedVehicleId)
-                return (
-                  <div key={d.id} className="p-3.5 rounded-xl bg-white border border-[#E2E6EB] flex items-center justify-between">
-                    <div>
-                      <p className="font-medium text-[14px] text-[#111827]">{d.name}</p>
-                      <p className="text-[12px] text-[#6B7280]">
-                        Code: {d.code}
-                        <button onClick={() => { setEditingDriver(d); setEditCode(d.code) }} className="ml-1.5 p-0.5 hover:bg-[#F5F6F8] rounded inline-flex align-middle">
-                          <svg className="w-3 h-3 text-[#9CA3AF]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                        </button> • {v?.plate || 'No vehicle'}
-                        <button onClick={() => { setEditingDriverVehicle(d); setEditVehicleId(String(d.assignedVehicleId || '')) }} className="ml-1 p-0.5 hover:bg-[#F5F6F8] rounded inline-flex align-middle">
-                          <svg className="w-3 h-3 text-[#9CA3AF]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                        </button></p>
+              {/* 7-Day Trend */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+                <div className="p-4 rounded-xl bg-white border border-[#E2E6EB]">
+                  <p className="text-[12px] font-semibold text-[#6B7280] uppercase tracking-wider mb-3">Fuel Spending (7 days)</p>
+                  <MiniBar data={last7Days.map((d, i) => ({ 
+                    label: new Date(d).toLocaleDateString('en', { weekday: 'short' }), 
+                    value: dailySpent[i], 
+                    color: '#E10600' 
+                  }))} />
+                </div>
+                <div className="p-4 rounded-xl bg-white border border-[#E2E6EB]">
+                  <p className="text-[12px] font-semibold text-[#6B7280] uppercase tracking-wider mb-3">Quick Stats</p>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-[11px]">
+                      <span className="text-[#6B7280]">Vehicles</span>
+                      <span className="font-medium text-[#111827]">{vehicles.length}</span>
                     </div>
-                    <button onClick={async () => {
-                      storage.saveDrivers(drivers.filter(x => x.id !== d.id))
-                      await googleSync.deleteDriver(d.id)
-                      setRefreshKey(k => k + 1)
-                    }} className="p-2 hover:bg-[#F5F6F8] rounded-lg">
-                      <Trash2 className="w-4 h-4 text-[#9CA3AF]" />
-                    </button>
+                    <div className="flex justify-between text-[11px]">
+                      <span className="text-[#6B7280]">Drivers</span>
+                      <span className="font-medium text-[#111827]">{drivers.length}</span>
+                    </div>
+                    <div className="flex justify-between text-[11px]">
+                      <span className="text-[#6B7280]">Credit Utilization</span>
+                      <span className={`font-medium ${creditLimit > 0 ? (creditUsed / creditLimit > 0.8 ? 'text-[#991B1B]' : 'text-[#166534]') : 'text-[#111827]'}`}>
+                        {creditLimit > 0 ? Math.round((creditUsed / creditLimit) * 100) : 0}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-[11px]">
+                      <span className="text-[#6B7280]">Risk Score</span>
+                      <span className={`font-medium ${riskScore === 'red' ? 'text-[#991B1B]' : riskScore === 'yellow' ? 'text-[#92400E]' : 'text-[#166534]'}`}>
+                        {riskScore === 'red' ? 'High' : riskScore === 'yellow' ? 'Medium' : 'Low'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Recent Activity */}
+              <div>
+                <h3 className="text-[12px] font-semibold text-[#6B7280] uppercase tracking-wider mb-3">Recent Fills</h3>
+                <div className="space-y-1.5">
+                  {fills.slice(-5).reverse().map(f => {
+                    const v = vehicles.find(veh => String(veh.id) === String(f.vehicleId) || veh.plate === f.vehicleId)
+                    const d = drivers.find(drv => String(drv.id) === String(f.driverId))
+                    return (
+                      <div key={f.id} className="flex items-center justify-between p-2.5 rounded-lg bg-white border border-[#E2E6EB] text-[11px]">
+                        <div className="flex-1 min-w-0">
+                          <span className="font-medium text-[#111827]">{v?.plate || 'Unknown'}</span>
+                          <span className="text-[#6B7280] ml-2">₹{f.total}</span>
+                          <span className="text-[#9CA3AF] ml-2">• {d?.name || 'Unknown'}</span>
+                        </div>
+                        <span className="text-[#9CA3AF] shrink-0">{new Date(f.time).toLocaleDateString()}</span>
+                      </div>
+                    )
+                  })}
+                  {fills.length === 0 && <p className="text-[12px] text-[#6B7280]">No fills yet</p>}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* FILLS TAB */}
+          {tab === 'fills' && (
+            <div className="space-y-2">
+              <div className="flex gap-2 mb-4">
+                <button onClick={() => setShowAddDriver(true)} className="flex-1 h-10 rounded-lg bg-white border border-[#E2E6EB] flex items-center justify-center gap-2 hover:bg-[#F5F6F8]">
+                  <Plus className="w-4 h-4 text-[#E10600]" />
+                  <span className="text-[12px] font-medium">{t('addDriver', lang)}</span>
+                </button>
+                <button onClick={() => setShowAddVehicle(true)} className="flex-1 h-10 rounded-lg bg-white border border-[#E2E6EB] flex items-center justify-center gap-2 hover:bg-[#F5F6F8]">
+                  <Plus className="w-4 h-4 text-[#E10600]" />
+                  <span className="text-[12px] font-medium">{t('addVehicle', lang)}</span>
+                </button>
+              </div>
+              {fills.slice().reverse().map(fill => {
+                const v = vehicles.find(veh => String(veh.id) === String(fill.vehicleId) || veh.plate === fill.vehicleId)
+                const d = drivers.find(drv => String(drv.id) === String(fill.driverId))
+                return (
+                  <div key={fill.id} className="p-4 rounded-xl bg-white border border-[#E2E6EB]">
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-[14px] text-[#111827]">{v?.plate || 'Unknown'} — ₹{fill.total}</p>
+                        <p className="text-[12px] text-[#6B7280]">{d?.name || 'Unknown'} • {fill.station} • {fill.kgs}kg @ ₹{fill.rate}/kg</p>
+                        <p className="text-[11px] text-[#6B7280]">{new Date(fill.time).toLocaleString()}</p>
+                      </div>
+                      <button onClick={() => {
+                        const updated = fills.map(f => f.id === fill.id ? { ...f, verified: !f.verified } : f)
+                        storage.saveFills(updated)
+                        setRefreshKey(k => k + 1)
+                      }} className={`px-3 py-1.5 rounded-lg text-[12px] font-medium ${fill.verified ? 'bg-[#DCFCE7] text-[#166534]' : 'bg-[#F5F6F8] text-[#6B7280]'}`}>
+                        {fill.verified ? 'Verified' : 'Verify'}
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+              {fills.length === 0 && <p className="text-[12px] text-[#6B7280] text-center py-8">No fills yet</p>}
+            </div>
+          )}
+
+          {/* VEHICLES TAB */}
+          {tab === 'vehicles' && (
+            <div className="space-y-3">
+              <button onClick={() => setShowAddVehicle(true)} className="w-full h-10 rounded-lg bg-white border border-[#E2E6EB] flex items-center justify-center gap-2 hover:bg-[#F5F6F8]">
+                <Plus className="w-4 h-4 text-[#E10600]" />
+                <span className="text-[12px] font-medium">{t('addVehicle', lang)}</span>
+              </button>
+              {vehicles.map(v => {
+                const vFills = fills.filter(f => String(f.vehicleId) === String(v.id) || f.vehicleId === v.plate)
+                const spent = vFills.reduce((s, f) => s + f.total, 0)
+                return (
+                  <div key={v.id} className="p-4 rounded-xl bg-white border border-[#E2E6EB]">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="font-mono font-bold text-[16px] text-[#111827]">{v.plate}</p>
+                        <p className="text-[13px] text-[#6B7280]">{v.model}</p>
+                        <p className="text-[11px] text-[#6B7280]">{vFills.length} fills • ₹{spent.toLocaleString()}</p>
+                      </div>
+                      <button onClick={async () => {
+                        storage.saveVehicles(vehicles.filter(x => x.id !== v.id))
+                        await googleSync.deleteVehicle(v.id)
+                        setRefreshKey(k => k + 1)
+                      }} className="p-1.5 hover:bg-[#FEE2E2] rounded-lg">
+                        <Trash2 className="w-4 h-4 text-[#EF4444]" />
+                      </button>
+                    </div>
                   </div>
                 )
               })}
             </div>
+          )}
+
+          {/* DRIVERS TAB */}
+          {tab === 'drivers' && (
+            <div className="space-y-3">
+              <button onClick={() => setShowAddDriver(true)} className="w-full h-10 rounded-lg bg-white border border-[#E2E6EB] flex items-center justify-center gap-2 hover:bg-[#F5F6F8]">
+                <Plus className="w-4 h-4 text-[#E10600]" />
+                <span className="text-[12px] font-medium">{t('addDriver', lang)}</span>
+              </button>
+              {drivers.map(d => {
+                const v = vehicles.find(veh => veh.plate === d.assignedVehicleId)
+                const dFills = fills.filter(f => f.driverId === d.id)
+                return (
+                  <div key={d.id} className="p-4 rounded-xl bg-white border border-[#E2E6EB]">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="font-medium text-[15px] text-[#111827]">{d.name}</p>
+                        <p className="text-[12px] text-[#6B7280]">Code: {d.code} • {v?.plate || 'No vehicle'}</p>
+                        <p className="text-[11px] text-[#6B7280]">{dFills.length} fills</p>
+                      </div>
+                      <button onClick={async () => {
+                        storage.saveDrivers(drivers.filter(x => x.id !== d.id))
+                        await googleSync.deleteDriver(d.id)
+                        setRefreshKey(k => k + 1)
+                      }} className="p-2 hover:bg-[#FEE2E2] rounded-lg">
+                        <Trash2 className="w-4 h-4 text-[#EF4444]" />
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* PAYMENTS TAB */}
+          {tab === 'payments' && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-white border border-[#E2E6EB]">
+                <p className="text-[12px] font-semibold text-[#6B7280] uppercase mb-3">Credit Summary</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 rounded-lg bg-[#F5F6F8]">
+                    <p className="text-[11px] text-[#6B7280]">Credit Limit</p>
+                    <p className="text-[16px] font-bold text-[#111827]">₹{creditLimit.toLocaleString()}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-[#F5F6F8]">
+                    <p className="text-[11px] text-[#6B7280]">Credit Used</p>
+                    <p className={`text-[16px] font-bold ${creditUsed > creditLimit * 0.8 ? 'text-[#991B1B]' : 'text-[#111827]'}`}>₹{creditUsed.toLocaleString()}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-[#F5F6F8]">
+                    <p className="text-[11px] text-[#6B7280]">Total Paid</p>
+                    <p className="text-[16px] font-bold text-[#166534]">₹{totalPaid.toLocaleString()}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-[#F5F6F8]">
+                    <p className="text-[11px] text-[#6B7280]">Outstanding</p>
+                    <p className={`text-[16px] font-bold ${outstanding > 0 ? 'text-[#991B1B]' : 'text-[#166534]'}`}>₹{outstanding.toLocaleString()}</p>
+                  </div>
+                </div>
+              </div>
+              
+              <div>
+                <p className="text-[12px] font-semibold text-[#6B7280] uppercase mb-3">Payment History</p>
+                <div className="space-y-2">
+                  {paymentEntries.slice().reverse().map(p => (
+                    <div key={p.id} className="p-3 rounded-xl bg-white border border-[#E2E6EB] flex items-center justify-between">
+                      <div>
+                        <p className="font-medium text-[14px] text-[#111827]">₹{p.amount.toLocaleString()}</p>
+                        <p className="text-[11px] text-[#6B7280]">{p.type} • {new Date(p.timestamp).toLocaleDateString()}</p>
+                      </div>
+                      <span className="text-[10px] text-[#6B7280]">{p.adminName}</span>
+                    </div>
+                  ))}
+                  {paymentEntries.length === 0 && <p className="text-[12px] text-[#6B7280] text-center py-4">No payment records</p>}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ALERTS TAB */}
+          {tab === 'alerts' && (
+            <div className="space-y-2">
+              {alerts.length === 0 ? (
+                <div className="py-16 text-center">
+                  <CheckCircle2 className="w-12 h-12 text-[#10B981] mx-auto mb-3" />
+                  <p className="text-[#6B7280]">No active alerts</p>
+                </div>
+              ) : alerts.map(alert => (
+                <div key={alert.id} className="p-4 rounded-xl bg-white border border-[#E2E6EB]">
+                  <div className="flex items-start gap-3">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${alert.type === 'vehicle_override' ? 'bg-[#FEF3C7]' : 'bg-[#FEE2E2]'}`}>
+                      <AlertTriangle className={`w-4 h-4 ${alert.type === 'vehicle_override' ? 'text-[#92400E]' : 'text-[#991B1B]'}`} />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium text-[14px] text-[#111827]">{alert.event}</p>
+                      <p className="text-[12px] text-[#6B7280]">{alert.user} • {new Date(alert.time).toLocaleString()}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Credit Request Modal */}
+      {showCreditRequest && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur flex items-center justify-center p-4" onClick={() => setShowCreditRequest(false)}>
+          <div className="bg-white rounded-[24px] border border-[#E2E6EB] p-6 w-full max-w-[400px] shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-[20px] font-bold mb-2 text-[#111827]">Request Credit Increase</h3>
+            <p className="text-[14px] text-[#6B7280] mb-5">Current limit: ₹{creditLimit.toLocaleString()}</p>
+            <div className="space-y-4">
+              <div>
+                <label className="text-[12px] text-[#6B7280] mb-1 block">Requested Amount (₹)</label>
+                <input 
+                  type="number" 
+                  value={creditReqAmount} 
+                  onChange={e => setCreditReqAmount(e.target.value)}
+                  placeholder="50000"
+                  className="w-full h-12 px-4 bg-[#F5F6F8] border border-[#E2E6EB] rounded-xl text-[15px]"
+                />
+              </div>
+              <div>
+                <label className="text-[12px] text-[#6B7280] mb-1 block">Reason</label>
+                <textarea 
+                  value={creditReqNote} 
+                  onChange={e => setCreditReqNote(e.target.value)}
+                  placeholder="Business expansion, more vehicles, etc."
+                  className="w-full h-24 px-4 py-3 bg-[#F5F6F8] border border-[#E2E6EB] rounded-xl text-[15px] resize-none"
+                />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button onClick={() => setShowCreditRequest(false)} className="flex-1 h-12 rounded-xl bg-[#F5F6F8] font-medium text-[#6B7280]">Cancel</button>
+                <button 
+                  onClick={() => {
+                    // Create notification for admin
+                    storage.addNotification({
+                      id: 'notif_' + Date.now(),
+                      type: 'credit_request',
+                      message: `${owner?.business || session.name} requested credit increase to ₹${creditReqAmount}`,
+                      severity: 'info',
+                      timestamp: new Date().toISOString(),
+                      read: false
+                    })
+                    setShowCreditRequest(false)
+                    setCreditReqAmount('')
+                    setCreditReqNote('')
+                    alert('Credit request submitted to admin')
+                  }} 
+                  disabled={!creditReqAmount}
+                  className="flex-1 h-12 rounded-xl bg-[#E10600] font-medium text-white disabled:opacity-50"
+                >
+                  Submit
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      {tab === 'fills' && (
-        <div className="space-y-2">
-          {fills.slice().reverse().map(fill => {
-            const v = vehicles.find(veh => String(veh.id) === String(fill.vehicleId) || veh.plate === fill.vehicleId)
-            const d = drivers.find(drv => String(drv.id) === String(fill.driverId))
-            return (
-              <div key={fill.id} className="p-4 rounded-2xl bg-white border border-[#E2E6EB] shadow-sm">
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-[14px] text-[#111827]">{v?.plate || 'Unknown'} — ₹{fill.total}</p>
-                    <p className="text-[12px] text-[#6B7280]">
-                      {d?.name || 'Unknown'} • {fill.station} • {fill.kgs}kg @ ₹{fill.rate}/kg
-                    </p>
-                    <p className="text-[11px] text-[#6B7280]">
-                      {new Date(fill.time).toLocaleString()} • ODO: {fill.odoReading.toLocaleString()}
-                    </p>
-                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
-                      {fill.pumpGPS && (
-                        <span className="text-[10px] text-[#6B7280] flex items-center gap-0.5">
-                          <MapPin className="w-2.5 h-2.5" /> Pump:
-                          <a href={`https://www.google.com/maps/dir/?api=1&destination=${fill.pumpGPS.lat},${fill.pumpGPS.lng}`} target="_blank" rel="noopener noreferrer" className="text-[#E10600] hover:underline ml-0.5">View</a>
-                        </span>
-                      )}
-                      {fill.receiptGPS && (
-                        <span className="text-[10px] text-[#6B7280] flex items-center gap-0.5">
-                          <MapPin className="w-2.5 h-2.5" /> Receipt:
-                          <a href={`https://www.google.com/maps/dir/?api=1&destination=${fill.receiptGPS.lat},${fill.receiptGPS.lng}`} target="_blank" rel="noopener noreferrer" className="text-[#E10600] hover:underline ml-0.5">View</a>
-                        </span>
-                      )}
-                      {fill.odoGPS && (
-                        <span className="text-[10px] text-[#6B7280] flex items-center gap-0.5">
-                          <MapPin className="w-2.5 h-2.5" /> Odo:
-                          <a href={`https://www.google.com/maps/dir/?api=1&destination=${fill.odoGPS.lat},${fill.odoGPS.lng}`} target="_blank" rel="noopener noreferrer" className="text-[#E10600] hover:underline ml-0.5">View</a>
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex gap-1">
-                    {fill.pumpGPS && (
-                      <a href={`https://www.google.com/maps/dir/?api=1&destination=${fill.pumpGPS.lat},${fill.pumpGPS.lng}`} target="_blank" rel="noopener noreferrer"
-                        className="px-2.5 py-1.5 rounded-lg bg-white border border-[#E2E6EB] text-[#E10600] text-[11px] font-medium hover:bg-[#FDE8E8] transition-colors flex items-center gap-1"
-                      >
-                        <MapPin className="w-3 h-3" /> Directions
-                      </a>
-                    )}
-                    <button
-                    onClick={() => {
-                      const updated = fills.map(f => f.id === fill.id ? { ...f, verified: !f.verified } : f)
-                      storage.saveFills(updated)
-                      setRefreshKey(k => k + 1)
-                    }}
-                    className={`px-3 py-1.5 rounded-lg text-[12px] font-medium whitespace-nowrap transition-colors ${
-                      fill.verified ? 'bg-[#DCFCE7] text-[#166534]' : 'bg-[#F5F6F8] text-[#6B7280] hover:bg-[#E2E6EB]'
-                    }`}
-                  >
-                    {fill.verified ? 'Verified' : 'Verify'}
-                  </button>
-                  {fill.pendingVehicleApproval && (
-                    <button
-                      onClick={() => {
-                        const veh = vehicles.find(v => String(v.id) === String(fill.vehicleId) || v.plate === fill.vehicleId)
-                        const vehPlate = veh ? veh.plate : fill.vehicleId
-                        console.log('[Approve-Fills] vehicle:', vehPlate, 'fill.vehicleId:', fill.vehicleId)
-                        const updated = fills.map(f => f.id === fill.id ? { ...f, pendingVehicleApproval: false } : f)
-                        storage.saveFills(updated)
-                        const approved = updated.find(f => f.id === fill.id)
-                        if (approved) {
-                          const sheetPayload = {
-                            action: 'addFill',
-                            id: approved.id,
-                            vehicleId: vehPlate,
-                            driverId: approved.driverId,
-                            time: approved.time,
-                            station: approved.station,
-                            kgs: approved.kgs,
-                            rate: approved.rate,
-                            total: approved.total,
-                            videoUrl: approved.videoUrl,
-                            pumpPhotoUrl: approved.pumpPhotoUrl,
-                            receiptPhotoUrl: approved.receiptPhotoUrl,
-                            odoPhotoUrl: approved.odoPhotoUrl,
-                            pumpGPS: approved.pumpGPS ? `${approved.pumpGPS.lat},${approved.pumpGPS.lng}` : '',
-                            receiptGPS: approved.receiptGPS ? `${approved.receiptGPS.lat},${approved.receiptGPS.lng}` : '',
-                            odoGPS: approved.odoGPS ? `${approved.odoGPS.lat},${approved.odoGPS.lng}` : '',
-                            odoReading: approved.odoReading,
-                            distanceDiff: approved.distanceDiff,
-                            mismatch: approved.mismatch,
-                            fuelDropPercent: approved.fuelDropPercent,
-                            ownerId: approved.ownerId,
-                            verified: approved.verified,
-                            pendingVehicleApproval: false,
-                          }
-                          const odoVehicles = storage.getVehicles()
-                          storage.saveVehicles(odoVehicles.map(v => String(v.id) === String(fill.vehicleId) || v.plate === fill.vehicleId ? { ...v, currentOdo: fill.odoReading } : v))
-                          googleSync.updateOdometer(String(fill.vehicleId), fill.odoReading).catch(() => {})
-                          console.log('[Approve-Fills] Sending to sheets:', sheetPayload)
-                          fetch(APPS_SCRIPT_URL, {
-                            method: 'POST',
-                            mode: 'cors',
-                            redirect: 'follow',
-                            headers: {'Content-Type': 'text/plain;charset=utf-8'},
-                            body: JSON.stringify(sheetPayload),
-                          }).then(r => r.text()).then(t => {
-                            console.log('[Approve-Fills] Sheet response:', t)
-                          }).catch(e => {
-                            console.error('[Approve-Fills] Sheet error:', e)
-                          })
-                        } else {
-                          console.log('[Approve-Fills] No approved fill found!')
-                        }
-                        setRefreshKey(k => k + 1)
-                      }}
-                      className="px-3 py-1.5 rounded-lg text-[12px] font-medium whitespace-nowrap bg-[#E10600] text-white hover:bg-[#B80500] transition-colors"
-                    >
-                      Approve
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className={`px-2.5 py-1 rounded-full text-[11px] font-medium inline-flex items-center gap-1 ${
-                  fill.mismatch ? 'bg-[#FEE2E2] text-[#991B1B]' : 'bg-[#DCFCE7] text-[#166534]'
-                }`}>
-                  <MapPin className="w-3 h-3" />
-                  {fill.mismatch ? `${Math.round(fill.distanceDiff)}m off` : '\u003C500m'}
-                </div>
-              {fill.pendingVehicleApproval && (
-                <div className="px-2.5 py-1 rounded-full text-[11px] font-medium inline-flex items-center gap-1 bg-[#FEF3C7] text-[#92400E] ml-1">
-                  Pending Approval
-                </div>
-              )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {tab === 'drivers' && (
-        <div className="space-y-2">
-          {drivers.length === 0 ? (
-            <div className="py-16 text-center">
-              <Users className="w-12 h-12 text-[#D1D5DB] mx-auto mb-3" />
-              <p className="text-[#6B7280]">No drivers yet</p>
-              <button onClick={() => setShowAddDriver(true)} className="mt-3 px-5 py-2.5 rounded-xl bg-[#E10600] text-white text-[14px] font-medium">
-                {t('addDriver', lang)}
-              </button>
-            </div>
-          ) : drivers.map(d => {
-            const v = vehicles.find(veh => veh.plate === d.assignedVehicleId)
-            const dFills = fills.filter(f => f.driverId === d.id)
-            return (
-              <div key={d.id} className="p-4 rounded-2xl bg-white border border-[#E2E6EB] shadow-sm">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="font-medium text-[15px] text-[#111827]">{d.name}</p>
-                    <p className="text-[12px] text-[#6B7280]">
-                      Code: {d.code}
-                      <button onClick={() => { setEditingDriver(d); setEditCode(d.code) }} className="ml-1.5 p-0.5 hover:bg-[#F5F6F8] rounded inline-flex align-middle">
-                        <svg className="w-3 h-3 text-[#9CA3AF]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                      </button> • {v?.plate || 'No vehicle'}
-                      <button onClick={() => { setEditingDriverVehicle(d); setEditVehicleId(String(d.assignedVehicleId || '')) }} className="ml-1 p-0.5 hover:bg-[#F5F6F8] rounded inline-flex align-middle">
-                        <svg className="w-3 h-3 text-[#9CA3AF]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                      </button>
-                    </p>
-                    <p className="text-[11px] text-[#6B7280]">{dFills.length} fills by this driver</p>
-                  </div>
-                  <button onClick={async () => {
-                    storage.saveDrivers(drivers.filter(x => x.id !== d.id))
-                    await googleSync.deleteDriver(d.id)
-                    setRefreshKey(k => k + 1)
-                  }} className="p-2 hover:bg-[#FEE2E2] rounded-lg">
-                    <Trash2 className="w-4 h-4 text-[#EF4444]" />
-                  </button>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {tab === 'vehicles' && (
-        <div className="space-y-3">
-          {vehicles.map(v => {
-            const vFills = fills.filter(f => String(f.vehicleId) === String(v.id) || f.vehicleId === v.plate)
-            const spent = vFills.reduce((s, f) => s + f.total, 0)
-            return (
-              <div key={v.id} className="p-4 rounded-2xl bg-white border border-[#E2E6EB] shadow-sm">
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <p className="font-mono font-bold text-[16px] text-[#111827]">{v.plate}</p>
-                    <p className="text-[13px] text-[#6B7280]">{v.model}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="px-2.5 py-1 rounded-full bg-[#F5F6F8] text-[11px] font-medium text-[#6B7280]">
-                      {vFills.length} fills
-                    </div>
-                    <button onClick={async () => {
-                      storage.saveVehicles(vehicles.filter(x => x.id !== v.id))
-                      await googleSync.deleteVehicle(v.id)
-                      setRefreshKey(k => k + 1)
-                    }} className="p-1.5 hover:bg-[#FEE2E2] rounded-lg">
-                      <Trash2 className="w-4 h-4 text-[#EF4444]" />
-                    </button>
-                  </div>
-                </div>
-                <div className="grid grid-cols-3 gap-3 pt-3 border-t border-[#E2E6EB]">
-                  <div>
-                    <p className="text-[11px] text-[#6B7280]">Odometer</p>
-                    <p className="text-[14px] font-medium text-[#111827]">{v.currentOdo.toLocaleString()}</p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] text-[#6B7280]">Total KG</p>
-                    <p className="text-[14px] font-medium text-[#111827]">{vFills.reduce((s, f) => s + f.kgs, 0).toFixed(1)}</p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] text-[#6B7280]">Spent</p>
-                    <p className="text-[14px] font-medium text-[#111827]">₹{spent.toFixed(0)}</p>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {tab === 'media' && (
-        <div className="space-y-3">
-          {fills.slice().reverse().map(fill => {
-            const v = vehicles.find(veh => veh.id === fill.vehicleId)
-            const d = drivers.find(drv => drv.id === fill.driverId)
-            const mediaItems = [
-              { label: 'Video', url: fill.videoUrl, isVideo: true },
-              { label: 'Pump', url: fill.pumpPhotoUrl, isVideo: false },
-              { label: 'Receipt', url: fill.receiptPhotoUrl, isVideo: false },
-              { label: 'Odo', url: fill.odoPhotoUrl, isVideo: false },
-            ]
-            return (
-              <div key={fill.id} className="p-4 rounded-2xl bg-white border border-[#E2E6EB] shadow-sm">
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <p className="font-mono text-[14px] font-medium text-[#111827]">{v?.plate}</p>
-                    <p className="text-[12px] text-[#6B7280]">{d?.name} • {new Date(fill.time).toLocaleString()}</p>
-                  </div>
-                  <div className={`px-2.5 py-1 rounded-full text-[11px] font-medium flex items-center gap-1 ${
-                    fill.mismatch ? 'bg-[#FEE2E2] text-[#991B1B]' : 'bg-[#DCFCE7] text-[#166534]'
-                  }`}>
-                    <MapPin className="w-3 h-3" />
-                    {fill.mismatch ? `${Math.round(fill.distanceDiff)}m` : '\u003C500m'}
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-2 mb-3">
-                  {mediaItems.map((m, i) => (
-                    <a key={i} href={m.url && m.url !== '[DRIVE]' ? m.url : '#'} target="_blank" rel="noopener noreferrer"
-                      className={`block aspect-video rounded-lg border overflow-hidden relative group ${m.url && m.url !== '[DRIVE]' ? 'cursor-pointer bg-[#1F2937] border-[#374151]' : 'cursor-default bg-[#F5F6F8] border-[#E2E6EB]'}`}
-                      onClick={e => { if (!m.url || m.url === '[DRIVE]') e.preventDefault() }}
-                    >
-                      {m.url && m.url !== '[DRIVE]' ? (
-                        m.isVideo ? (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center">
-                              <Play className="w-7 h-7 text-white ml-0.5" />
-                            </div>
-                          </div>
-                        ) : (
-                          <img src={m.url} alt={m.label} className="w-full h-full object-cover" />
-                        )
-                      ) : (
-                        <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-[#F5F6F8]">
-                          <Camera className="w-5 h-5 text-[#D1D5DB]" />
-                          <span className="text-[10px] text-[#D1D5DB]">{m.label}</span>
-                        </div>
-                      )}
-                    </a>
-                  ))}
-                </div>
-
-                <div className="flex items-center justify-between pt-3 border-t border-[#E2E6EB]">
-                  <div className="flex items-center gap-4">
-                    <div>
-                      <p className="text-[11px] text-[#6B7280]">KGs</p>
-                      <p className="text-[14px] font-medium text-[#111827]">{fill.kgs}</p>
-                    </div>
-                    <div>
-                      <p className="text-[11px] text-[#6B7280]">Total</p>
-                      <p className="text-[14px] font-medium text-[#111827]">₹{fill.total}</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-1">
-                    {fill.pumpGPS && (
-                      <a href={`https://www.google.com/maps/dir/?api=1&destination=${fill.pumpGPS.lat},${fill.pumpGPS.lng}`} target="_blank" rel="noopener noreferrer"
-                        className="px-2.5 py-1.5 rounded-lg border border-[#E2E6EB] text-[#E10600] text-[11px] font-medium hover:bg-[#FDE8E8] transition-colors flex items-center gap-1"
-                      >
-                        <MapPin className="w-3 h-3" /> Directions
-                      </a>
-                    )}
-                    <button
-                    onClick={() => {
-                      const updated = fills.map(f => f.id === fill.id ? { ...f, verified: !f.verified } : f)
-                      storage.saveFills(updated)
-                      setRefreshKey(k => k + 1)
-                    }}
-                    className={`px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors ${
-                      fill.verified ? 'bg-[#DCFCE7] text-[#166534]' : 'bg-[#F5F6F8] text-[#6B7280] hover:bg-[#E2E6EB]'
-                    }`}
-                  >
-                    {fill.verified ? 'Verified' : 'Verify'}
-                  </button>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-2 pt-2 border-t border-[#E2E6EB]">
-                {fill.receiptGPS && (
-                  <span className="text-[10px] text-[#6B7280] flex items-center gap-0.5">
-                    <MapPin className="w-2.5 h-2.5" /> Receipt GPS:
-                    <a href={`https://www.google.com/maps/dir/?api=1&destination=${fill.receiptGPS.lat},${fill.receiptGPS.lng}`} target="_blank" rel="noopener noreferrer" className="text-[#E10600] hover:underline ml-0.5">View</a>
-                  </span>
-                )}
-                {fill.odoGPS && (
-                  <span className="text-[10px] text-[#6B7280] flex items-center gap-0.5">
-                    <MapPin className="w-2.5 h-2.5" /> Odo GPS:
-                    <a href={`https://www.google.com/maps/dir/?api=1&destination=${fill.odoGPS.lat},${fill.odoGPS.lng}`} target="_blank" rel="noopener noreferrer" className="text-[#E10600] hover:underline ml-0.5">View</a>
-                  </span>
-                )}
-              </div>
-            </div>
-            )
-          })}
-        </div>
-      )}
-
-      {tab === 'alerts' && (
-        <div className="space-y-2.5">
-          {alerts.length === 0 ? (
-            <div className="py-16 text-center">
-              <CheckCircle2 className="w-12 h-12 text-[#10B981] mx-auto mb-3" />
-              <p className="text-[#6B7280]">No active alerts</p>
-            </div>
-          ) : alerts.map(alert => (
-            <div key={alert.id} className={`p-4 rounded-2xl border ${alert.type === 'vehicle_override' ? 'bg-[#FEF3C7] border-[#FDE68A]' : 'bg-[#FEE2E2] border-[#FECACA]'}`}>
-              <div className="flex items-start gap-3">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${alert.type === 'vehicle_override' ? 'bg-[#FDE68A]' : 'bg-[#FECACA]'}`}>
-                  <AlertTriangle className={`w-4 h-4 ${alert.type === 'vehicle_override' ? 'text-[#92400E]' : 'text-[#991B1B]'}`} />
-                </div>
-                <div className="flex-1">
-                  <p className="font-medium text-[14px] mb-1 text-[#111827]">{alert.event}</p>
-                  <p className="text-[12px] text-[#6B7280]">{alert.user} • {new Date(alert.time).toLocaleString()}</p>
-                </div>
-                <div className="flex gap-1 flex-wrap">
-                  {alert.type === 'vehicle_override' && (
-                    <button
-                      onClick={() => {
-                        const allFills = storage.getFills()
-                        const vehicles = storage.getVehicles()
-                        console.log('[Approve] Looking for pending fill. alert.user:', alert.user)
-                        console.log('[Approve] All fills:', allFills.map(f => ({ id: f.id, driverId: f.driverId, pending: f.pendingVehicleApproval })))
-                        const pendingFill = allFills.find(f => f.pendingVehicleApproval === true || (f.pendingVehicleApproval as any) === 'true')
-                        if (pendingFill) {
-                          const veh = vehicles.find(v => String(v.id) === String(pendingFill.vehicleId))
-                          const vehPlate = veh ? veh.plate : pendingFill.vehicleId
-                          console.log('[Approve] Found pending fill:', pendingFill.id, 'vehicle:', vehPlate)
-                          const updatedFills = allFills.map(f => f.id === pendingFill.id ? { ...f, pendingVehicleApproval: false } : f)
-                          storage.saveFills(updatedFills)
-                          const sheetPayload = {
-                            action: 'addFill',
-                            id: pendingFill.id,
-                            vehicleId: vehPlate,
-                            driverId: pendingFill.driverId,
-                            time: pendingFill.time,
-                            station: pendingFill.station,
-                            kgs: pendingFill.kgs,
-                            rate: pendingFill.rate,
-                            total: pendingFill.total,
-                            videoUrl: pendingFill.videoUrl,
-                            pumpPhotoUrl: pendingFill.pumpPhotoUrl,
-                            receiptPhotoUrl: pendingFill.receiptPhotoUrl,
-                            odoPhotoUrl: pendingFill.odoPhotoUrl,
-                            pumpGPS: pendingFill.pumpGPS ? `${pendingFill.pumpGPS.lat},${pendingFill.pumpGPS.lng}` : '',
-                            receiptGPS: pendingFill.receiptGPS ? `${pendingFill.receiptGPS.lat},${pendingFill.receiptGPS.lng}` : '',
-                            odoGPS: pendingFill.odoGPS ? `${pendingFill.odoGPS.lat},${pendingFill.odoGPS.lng}` : '',
-                            odoReading: pendingFill.odoReading,
-                            distanceDiff: pendingFill.distanceDiff,
-                            mismatch: pendingFill.mismatch,
-                            fuelDropPercent: pendingFill.fuelDropPercent,
-                            ownerId: pendingFill.ownerId,
-                            verified: pendingFill.verified,
-                            pendingVehicleApproval: false,
-                          }
-                          const odoV = storage.getVehicles()
-                          storage.saveVehicles(odoV.map(v => String(v.id) === String(pendingFill.vehicleId) || v.plate === pendingFill.vehicleId ? { ...v, currentOdo: pendingFill.odoReading } : v))
-                          googleSync.updateOdometer(String(pendingFill.vehicleId), pendingFill.odoReading).catch(() => {})
-                          console.log('[Approve] Sending to sheets:', sheetPayload)
-                          fetch(APPS_SCRIPT_URL, {
-                            method: 'POST',
-                            mode: 'cors',
-                            redirect: 'follow',
-                            headers: {'Content-Type': 'text/plain;charset=utf-8'},
-                            body: JSON.stringify(sheetPayload),
-                          }).then(r => r.text()).then(t => {
-                            console.log('[Approve] Sheet response:', t)
-                          }).catch(e => {
-                            console.error('[Approve] Sheet error:', e)
-                          })
-                        } else {
-                          console.log('[Approve] No pending fill found!')
-                        }
-                        setRefreshKey(k => k + 1)
-                        const allAlerts = storage.getAlerts()
-                        storage.saveAlerts(allAlerts.map(a => a.id === alert.id ? { ...a, resolved: true } : a))
-                      }}
-                      className="text-[11px] px-2.5 py-1 rounded-lg bg-[#10B981] hover:bg-[#059669] transition-colors text-white font-medium"
-                    >
-                      Approve Fill
-                    </button>
-                  )}
-                  {alert.type === 'vehicle_override' && (
-                    <button onClick={() => setTab('fills')} className="text-[11px] px-2.5 py-1 rounded-lg bg-white hover:bg-[#F5F6F8] transition-colors text-[#E10600]">
-                      View in Fills
-                    </button>
-                  )}
-                  <button
-                    onClick={() => {
-                      const allAlerts = storage.getAlerts()
-                      storage.saveAlerts(allAlerts.map(a => a.id === alert.id ? { ...a, resolved: true } : a))
-                      setRefreshKey(k => k + 1)
-                    }}
-                    className="text-[11px] px-2.5 py-1 rounded-lg bg-white hover:bg-[#F5F6F8] transition-colors text-[#6B7280]"
-                  >
-                    Resolve
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
+      {/* Add Driver Modal */}
       {/* Lightbox */}
       {lightboxMedia && (
         <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur flex items-center justify-center p-4" onClick={() => setLightboxMedia(null)}>
@@ -2029,7 +1906,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
           </div>
         </div>
       )}
-    </motion.div>
+    </div>
   )
 }
 
