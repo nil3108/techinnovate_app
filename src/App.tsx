@@ -2176,11 +2176,6 @@ function AdminDashboard({ lang, syncKey, syncStatus }: { lang: Language; syncKey
   const todayFuelValue = todayFills.reduce((s, f) => s + f.total, 0)
   const blockedOwners = owners.filter(o => o.status === 'inactive')
   const fraudAlerts = alerts.filter(a => !a.resolved)
-  const overdueOwners = owners.filter(o => {
-    if (o.status === 'inactive') return false
-    const stats = getOwnerStats(o.id)
-    return stats.pending > 0 && (!o.lastPaymentDate || Date.now() - new Date(o.lastPaymentDate).getTime() > 30 * 24 * 60 * 60 * 1000)
-  })
 
   const getOwnerStats = (ownerId: string) => {
     const oDrivers = drivers.filter(d => d.ownerId === ownerId)
@@ -2204,6 +2199,12 @@ function AdminDashboard({ lang, syncKey, syncStatus }: { lang: Language; syncKey
       lastFill: oFills.length > 0 ? oFills.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())[0].time : null,
     }
   }
+
+  const overdueOwners = owners.filter(o => {
+    if (o.status === 'inactive') return false
+    const stats = getOwnerStats(o.id)
+    return stats.pending > 0 && (!o.lastPaymentDate || Date.now() - new Date(o.lastPaymentDate).getTime() > 30 * 24 * 60 * 60 * 1000)
+  })
 
   const calcRiskColor = (ownerId: string): 'green' | 'red' | 'amber' => {
     const o = owners.find(x => x.id === ownerId)
