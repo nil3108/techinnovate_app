@@ -53,6 +53,28 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'failed'>('idle')
 
+  // Clear duplicate data on first load after update (one-time cleanup)
+  useEffect(() => {
+    const clearedVersion = localStorage.getItem('cng_cleared_version')
+    if (clearedVersion !== 'v2.1') {
+      console.log('Clearing old duplicate data...')
+      const savedSession = localStorage.getItem('cng_session')
+      // Clear all data
+      localStorage.removeItem('cng_drivers')
+      localStorage.removeItem('cng_vehicles')
+      localStorage.removeItem('cng_fills')
+      localStorage.removeItem('cng_owners')
+      localStorage.removeItem('cng_paymentEntries')
+      localStorage.removeItem('cng_alerts')
+      // Mark as cleared
+      localStorage.setItem('cng_cleared_version', 'v2.1')
+      // Restore session
+      if (savedSession) localStorage.setItem('cng_session', savedSession)
+      // Reload to get fresh data
+      window.location.reload()
+    }
+  }, [])
+
   useEffect(() => {
     const loadDataFromBackend = async () => {
       if (!navigator.onLine) return
@@ -69,16 +91,17 @@ export default function App() {
       try {
         const data = await googleSync.fetchAllData()
         
-        if (data?.success) {
+         if (data?.success) {
+          console.log('[LoadData] Owners from backend:', data.owners?.map((o: any) => ({ rawId: o.id, rawKeys: Object.keys(o) })))
+          // Replace drivers from sheet (complete replacement)
           if (data.drivers?.length > 0) {
-            const localDrivers = storage.getDrivers()
             const sheetDrivers = data.drivers.map((d: any) => normalizeKeys(d, DRIVER_KEYS))
-            storage.saveDrivers([...localDrivers, ...sheetDrivers.filter((sd: any) => !localDrivers.find((ld: any) => ld.id === sd.id))])
+            storage.saveDrivers(sheetDrivers)
           }
+          // Replace vehicles from sheet (complete replacement)
           if (data.vehicles?.length > 0) {
-            const localVehicles = storage.getVehicles()
             const sheetVehicles = data.vehicles.map((v: any) => normalizeKeys(v, VEHICLE_KEYS))
-            storage.saveVehicles([...localVehicles, ...sheetVehicles.filter((sv: any) => !localVehicles.find((lv: any) => lv.id === sv.id))])
+            storage.saveVehicles(sheetVehicles)
           }
           if (data.fills?.length > 0) {
             const parseGPS = (v: any): {lat: number; lng: number} | null => {
@@ -90,28 +113,49 @@ export default function App() {
               }
               return null
             }
+            // Replace fills from sheet (prevent duplicates)
+            console.log('[LoadData] Raw fills sample:', data.fills?.slice(0, 2).map((f: any) => ({ rawId: f.id, rawOwnerId: f.ownerId })))
             const cleanFills = data.fills.map((f: any) => {
               const nf = normalizeKeys(f, FILL_KEYS)
-              const id = nf.id || nf[' '] || 'fill_' + Date.now() + '_' + Math.random().toString(36).slice(2,8)
+              // Keep original ID from sheet, don't regenerate
+              const id = nf.id || 'fill_' + Date.now() + '_' + Math.random().toString(36).slice(2,8)
               return {
                 ...nf, id,
-                videoUrl: nf.videoUrl && !nf.videoUrl.startsWith('data:') ? nf.videoUrl : '',
-                pumpPhotoUrl: nf.pumpPhotoUrl && !nf.pumpPhotoUrl.startsWith('data:') ? nf.pumpPhotoUrl : '',
-                receiptPhotoUrl: nf.receiptPhotoUrl && !nf.receiptPhotoUrl.startsWith('data:') ? nf.receiptPhotoUrl : '',
-                odoPhotoUrl: nf.odoPhotoUrl && !nf.odoPhotoUrl.startsWith('data:') ? nf.odoPhotoUrl : '',
+                videoUrl: nf.videoUrl && typeof nf.videoUrl === 'string' && !nf.videoUrl.startsWith('data:') ? nf.videoUrl : '',
+                pumpPhotoUrl: nf.pumpPhotoUrl && typeof nf.pumpPhotoUrl === 'string' && !nf.pumpPhotoUrl.startsWith('data:') ? nf.pumpPhotoUrl : '',
+                receiptPhotoUrl: nf.receiptPhotoUrl && typeof nf.receiptPhotoUrl === 'string' && !nf.receiptPhotoUrl.startsWith('data:') ? nf.receiptPhotoUrl : '',
+                odoPhotoUrl: nf.odoPhotoUrl && typeof nf.odoPhotoUrl === 'string' && !nf.odoPhotoUrl.startsWith('data:') ? nf.odoPhotoUrl : '',
                 pumpGPS: parseGPS(nf.pumpGPS),
                 receiptGPS: parseGPS(nf.receiptGPS),
                 odoGPS: parseGPS(nf.odoGPS),
                 pendingVehicleApproval: nf.pendingVehicleApproval === true || nf.pendingVehicleApproval === 'true' || nf.pendingVehicleApproval === 'TRUE',
               }
             })
-            const localFills = storage.getFills()
-            storage.saveFills([...localFills, ...cleanFills.filter((nf: any) => !localFills.find((lf: any) => lf.id === nf.id))])
+            // Replace all fills with sheet data (clean slate)
+            storage.saveFills(cleanFills)
           }
+          // Replace owners from sheet (complete replacement)
           if (data.owners?.length > 0) {
-            const localOwners = storage.getOwners()
-            const sheetOwners = data.owners.map((o: any) => normalizeKeys(o, OWNER_KEYS))
-            storage.saveOwners([...localOwners, ...sheetOwners.filter((so: any) => !localOwners.find((lo: any) => lo.id === so.id))])
+            const sheetOwners = data.owners
+              .filter((o: any) => o.id && String(o.id).trim() !== '')
+              .map((o: any) => normalizeKeys(o, OWNER_KEYS))
+            storage.saveOwners(sheetOwners)
+          }
+          // Load payment entries from backend (Phase 1) - prevent duplicates
+          if (data.paymentEntries?.length > 0) {
+            const localPayments = storage.getPaymentEntries()
+            const sheetPayments = data.paymentEntries.map((p: any) => ({
+              id: p.id || 'pay_' + Date.now(),
+              ownerId: p.ownerId,
+              amount: parseFloat(p.amount) || 0,
+              type: p.type || 'payment',
+              timestamp: p.createdAt || p.date || new Date().toISOString(),
+              adminName: 'Admin',
+              note: p.notes || p.note || ''
+            }))
+            
+             // Replace payment entries (complete replacement)
+            storage.savePaymentEntries(sheetPayments)
           }
           window.sessionStorage.setItem('synced', 'true')
           setSyncStatus('synced')
@@ -377,10 +421,16 @@ function OwnerLogin({ lang, setView, setSession }: { lang: Language; setView: (v
 
   const handleLogin = () => {
     const owners = storage.getOwners()
-    const owner = owners.find(o => o.email === email && o.password === password)
+    console.log('[OwnerLogin] Attempting login with email:', email)
+    console.log('[OwnerLogin] Available owners:', owners.map(o => ({ id: o.id, email: o.email, business: o.business })))
+    // Filter out owners with empty IDs, then find matching credentials
+    const validOwners = owners.filter(o => o.id && o.id !== '')
+    const owner = validOwners.find(o => o.email === email && o.password === password)
+    console.log('[OwnerLogin] Found owner:', owner, 'Keys:', owner ? Object.keys(owner) : 'N/A')
     
     if (owner) {
       const session = { role: 'owner' as Role, userId: owner.id, ownerId: owner.id, name: owner.name }
+      console.log('[OwnerLogin] Setting session:', session)
       storage.setSession(session)
       setSession(session)
       setView('owner-dash')
@@ -851,8 +901,10 @@ function FillWizard({ lang, session, setView, syncKey }: { lang: Language; sessi
   const vehicles = storage.getVehicles()
   const drivers = storage.getDrivers()
   const driver = drivers.find(d => String(d.id) === String(session.userId))
-  const assignedPlate = driver?.assignedVehicleId?.trim() || ''
-  const defaultVeh = assignedPlate ? vehicles.find(v => v.plate === assignedPlate) : null
+  // assignedVehicleId is a vehicle ID, not a plate - find the vehicle and get its plate
+  const assignedVehicle = driver?.assignedVehicleId ? vehicles.find(v => String(v.id) === String(driver.assignedVehicleId)) : null
+  const assignedPlate = assignedVehicle?.plate?.trim() || ''
+  const defaultVeh = assignedVehicle || null
 
   console.log('[FillWizard] vehicles:', vehicles.map(v => ({ id: v.id, plate: v.plate })))
   console.log('[FillWizard] driver:', driver)
@@ -861,7 +913,7 @@ function FillWizard({ lang, session, setView, syncKey }: { lang: Language; sessi
   console.log('[FillWizard] session.userId:', session.userId)
 
   const [form, setForm] = useState({
-    vehicleId: defaultVeh ? String(defaultVeh.id) : '',
+    vehicleId: defaultVeh ? String(defaultVeh.plate) : '', // Use plate, not ID
     station: 'VGL',
     kgs: '',
     rate: '',
@@ -894,7 +946,7 @@ function FillWizard({ lang, session, setView, syncKey }: { lang: Language; sessi
     console.log('[Submit] form.vehicleId:', form.vehicleId)
     console.log('[Submit] vehicles:', vehicles.map(v => ({ id: v.id, plate: v.plate })))
     
-    const vehicle = vehicles.find(v => String(v.id) === String(form.vehicleId))
+    const vehicle = vehicles.find(v => String(v.plate) === String(form.vehicleId) || String(v.id) === String(form.vehicleId))
     if (!vehicle) { 
       setIsSubmitting(false)
       alert('Please select a vehicle. Available: ' + vehicles.map(v => v.plate).join(', '))
@@ -915,7 +967,7 @@ function FillWizard({ lang, session, setView, syncKey }: { lang: Language; sessi
       mismatch = distanceDiff > 500
     }
 
-    const fills = storage.getFills().filter(f => f.vehicleId === form.vehicleId)
+    const fills = storage.getFills().filter(f => f.vehicleId === form.vehicleId || f.vehicleId === vehicle.id)
     const lastFill = fills.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())[0]
     let fuelDropPercent = 0
     if (lastFill) {
@@ -931,7 +983,7 @@ function FillWizard({ lang, session, setView, syncKey }: { lang: Language; sessi
     // Save fill to localStorage (instant)
     const fill: Fill = {
       id: fillId,
-      vehicleId: form.vehicleId,
+        vehicleId: vehicle.id, // Save actual vehicle ID, not plate
       driverId: session.userId,
       time: new Date().toISOString(),
       station: form.station || 'Unknown',
@@ -1039,8 +1091,8 @@ function FillWizard({ lang, session, setView, syncKey }: { lang: Language; sessi
 
         // Update vehicle odo
         const allVehicles = storage.getVehicles()
-        storage.saveVehicles(allVehicles.map(v => String(v.id) === String(form.vehicleId) ? { ...v, currentOdo: parseInt(form.odoReading) } : v))
-        googleSync.updateOdometer(String(form.vehicleId), parseInt(form.odoReading)).catch(() => {})
+        storage.saveVehicles(allVehicles.map(v => String(v.plate) === String(form.vehicleId) || String(v.id) === String(form.vehicleId) ? { ...v, currentOdo: parseInt(form.odoReading) } : v))
+        googleSync.updateOdometer(String(vehicle.id), parseInt(form.odoReading)).catch(() => {})
       } catch (e) {
         console.error('Background sync error:', e)
       }
@@ -1168,10 +1220,9 @@ function FillWizard({ lang, session, setView, syncKey }: { lang: Language; sessi
                     <label className="text-[12px] text-[#6B7280] uppercase tracking-wider mb-1.5 block">{t('vehicle', lang)}</label>
                     <select
                       value={form.vehicleId}
-                      onChange={e => {
-                        const val = e.target.value
-                        const selectedVeh = vehicles.find(v => String(v.id) === String(val))
-                        const selPlate = selectedVeh?.plate?.trim() || ''
+                       onChange={e => {
+                        const val = e.target.value // This is now the plate
+                        const selPlate = val?.trim() || ''
                         console.log('[VehicleSelect] selected:', selPlate, 'assigned:', assignedPlate, 'match:', selPlate === assignedPlate)
                         if (assignedPlate && selPlate && selPlate !== assignedPlate) {
                           console.log('[VehicleSelect] MISMATCH - showing warning')
@@ -1184,10 +1235,10 @@ function FillWizard({ lang, session, setView, syncKey }: { lang: Language; sessi
                       }}
                       className="w-full h-[52px] px-4 bg-white border border-[#E2E6EB] rounded-xl text-[15px] focus:border-[#3B82F6] focus:outline-none"
                     >
-                      <option value="">Select vehicle</option>
-                      {vehicles.map(v => <option key={v.id} value={String(v.id)}>{v.plate}</option>)}
+                       <option value="">Select vehicle</option>
+                      {vehicles.map(v => <option key={v.id} value={String(v.plate)}>{v.plate}</option>)}
                     </select>
-                    {driver?.assignedVehicleId && form.vehicleId && (() => { const sv = vehicles.find(v => String(v.id) === String(form.vehicleId)); return sv && sv.plate !== driver.assignedVehicleId })() && (
+                    {driver?.assignedVehicleId && form.vehicleId && (() => { const sv = vehicles.find(v => String(v.plate) === String(form.vehicleId)); return sv && sv.plate !== assignedPlate })() && (
                       <p className="text-[11px] text-[#E10600] mt-1 flex items-center gap-1">
                         <AlertTriangle className="w-3 h-3" /> Not your assigned vehicle — owner approval required
                       </p>
@@ -1388,7 +1439,7 @@ function FillWizard({ lang, session, setView, syncKey }: { lang: Language; sessi
 }
 
 function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: any; syncKey: number }) {
-  const [tab, setTab] = useState<'dashboard' | 'fills' | 'vehicles' | 'drivers' | 'payments' | 'alerts'>('dashboard')
+  const [tab, setTab] = useState<'dashboard' | 'fills' | 'vehicles' | 'drivers' | 'payments' | 'alerts' | 'media'>('dashboard')
   const [showAddDriver, setShowAddDriver] = useState(false)
   const [showAddVehicle, setShowAddVehicle] = useState(false)
   const [showCreditRequest, setShowCreditRequest] = useState(false)
@@ -1401,17 +1452,40 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
   const [creditReqAmount, setCreditReqAmount] = useState('')
   const [creditReqNote, setCreditReqNote] = useState('')
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null)
+  
+  // Media tab filters
+  const [mediaFilterDriver, setMediaFilterDriver] = useState<string>('all')
+  const [mediaFilterVehicle, setMediaFilterVehicle] = useState<string>('all')
+  const [mediaFilterVerified, setMediaFilterVerified] = useState<'all' | 'verified' | 'pending'>('all')
 
   const ownerId = session.ownerId
-  const allFills = storage.getFills()
-  const fills = allFills.filter(f => f.ownerId === ownerId)
-  const allDrivers = storage.getDrivers()
-  const drivers = allDrivers.filter(d => d.ownerId === ownerId)
+  const ownerIdStr = String(ownerId)
+  console.log('[OwnerDashboard] Session:', session, 'Keys:', Object.keys(session))
+  console.log('[OwnerDashboard] ownerId:', ownerId, 'ownerIdStr:', ownerIdStr)
+  
+  // First get vehicles and drivers
   const allVehicles = storage.getVehicles()
-  const vehicles = allVehicles.filter(v => v.ownerId === ownerId)
-  const alerts = storage.getAlerts().filter(a => !a.resolved && a.ownerId === ownerId)
-  const paymentEntries = storage.getPaymentEntries().filter(p => p.ownerId === ownerId)
-  const owner = storage.getOwners().find(o => o.id === ownerId)
+  const vehicles = allVehicles.filter(v => String(v.ownerId) === ownerIdStr)
+  console.log('[OwnerDashboard] Vehicles for owner:', vehicles.length)
+  
+  const allDrivers = storage.getDrivers()
+  const drivers = allDrivers.filter(d => String(d.ownerId) === ownerIdStr)
+  console.log('[OwnerDashboard] Drivers for owner:', drivers.length)
+  
+  // Now get fills for these vehicles and drivers
+  const vehicleIds = vehicles.map(v => String(v.id))
+  const driverIds = drivers.map(d => String(d.id))
+  const allFills = storage.getFills()
+  console.log('[OwnerDashboard] All fills:', allFills.length)
+  console.log('[OwnerDashboard] Sample fills:', allFills.slice(0, 3).map(f => ({ id: f.id, vehicleId: f.vehicleId, driverId: f.driverId })))
+  const fills = allFills.filter(f => vehicleIds.includes(String(f.vehicleId)) || driverIds.includes(String(f.driverId)))
+  console.log('[OwnerDashboard] Fills for owner:', fills.length, 'by', vehicleIds.length, 'vehicles and', driverIds.length, 'drivers')
+  
+  // Get alerts for this owner's drivers (by user/driverId)
+  const alerts = storage.getAlerts().filter(a => !a.resolved && driverIds.includes(String(a.user)))
+  // Payment entries - keep existing filter by ownerId for now
+  const paymentEntries = storage.getPaymentEntries().filter(p => String(p.ownerId) === ownerIdStr)
+  const owner = storage.getOwners().find(o => o.id && String(o.id) === ownerIdStr)
 
   const todayFills = fills.filter(f => new Date(f.time).toDateString() === new Date().toDateString())
   const pendingVerifications = fills.filter(f => !f.verified)
@@ -1460,7 +1534,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
     return d.toISOString().split('T')[0]
   })
   const dailySpent = last7Days.map(day => 
-    fills.filter(f => f.time.startsWith(day)).reduce((s, f) => s + f.total, 0)
+    fills.filter(f => f.time && f.time.startsWith(day)).reduce((s, f) => s + f.total, 0)
   )
 
   const nav = [
@@ -1468,6 +1542,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
     { key: 'fills', label: 'Fills', icon: '⛽' },
     { key: 'vehicles', label: 'Vehicles', icon: '🚛' },
     { key: 'drivers', label: 'Drivers', icon: '👷' },
+    { key: 'media', label: 'Media', icon: '📷' },
     { key: 'payments', label: 'Payments', icon: '💳' },
     { key: 'alerts', label: 'Alerts', icon: '🔔' },
   ]
@@ -1480,23 +1555,27 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
     </div>
   )
 
-  const MiniBar = ({ data }: { data: { label: string; value: number; color: string }[] }) => (
-    <div className="flex items-end gap-1 h-16">
-      {data.map((d, i) => (
-        <div key={i} className="flex-1 flex flex-col items-center gap-1">
-          <div className="w-full bg-[#E2E6EB] rounded-t-sm relative" style={{ height: '100%' }}>
-            <div className="absolute bottom-0 left-0 right-0 rounded-t-sm transition-all duration-500" 
-              style={{ 
-                height: `${Math.max(0, Math.min(100, (d.value / Math.max(...data.map(x => x.value || 1)) * 100)))}%`,
-                backgroundColor: d.color 
-              }} 
-            />
+  const MiniBar = ({ data }: { data: { label: string; value: number; color: string }[] }) => {
+    if (!data || data.length === 0) return <div className="h-16 flex items-center justify-center text-[11px] text-[#9CA3AF]">No data</div>
+    const maxValue = Math.max(...data.map(x => x.value || 1), 1)
+    return (
+      <div className="flex items-end gap-1 h-16">
+        {data.map((d, i) => (
+          <div key={i} className="flex-1 flex flex-col items-center gap-1">
+            <div className="w-full bg-[#E2E6EB] rounded-t-sm relative" style={{ height: '100%' }}>
+              <div className="absolute bottom-0 left-0 right-0 rounded-t-sm transition-all duration-500" 
+                style={{ 
+                  height: `${Math.max(0, Math.min(100, ((d.value || 0) / maxValue) * 100))}%`,
+                  backgroundColor: d.color 
+                }} 
+              />
+            </div>
+            <span className="text-[9px] text-[#6B7280]">{d.label}</span>
           </div>
-          <span className="text-[9px] text-[#6B7280]">{d.label}</span>
-        </div>
-      ))}
-    </div>
-  )
+        ))}
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-[#F5F6F8]">
@@ -1547,7 +1626,7 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                 ⚠️ Payment Overdue — {daysOverdue} days since last payment
               </p>
               <p className="text-[11px] text-[#991B1B] mt-1">
-                Outstanding: ₹{outstanding.toLocaleString()} | Last paid: {new Date(lastPaymentDate!).toLocaleDateString()}
+                Outstanding: ₹{outstanding.toLocaleString()} | Last paid: {lastPaymentDate ? new Date(lastPaymentDate).toLocaleDateString() : 'Never'}
               </p>
             </div>
           )}
@@ -2087,8 +2166,167 @@ function OwnerDashboard({ lang, session, syncKey }: { lang: Language; session: a
                       </div>
                     </div>
                   ))}
+                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* MEDIA VERIFICATION TAB */}
+          {tab === 'media' && (
+            <div className="space-y-4">
+              {/* Filters */}
+              <div className="p-4 rounded-xl bg-white border border-[#E2E6EB]">
+                <p className="text-[12px] font-semibold text-[#6B7280] uppercase mb-3">Filters</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <select 
+                    value={mediaFilterDriver} 
+                    onChange={e => setMediaFilterDriver(e.target.value)}
+                    className="h-10 px-3 bg-[#F5F6F8] border border-[#E2E6EB] rounded-lg text-[12px]"
+                  >
+                    <option value="all">All Drivers</option>
+                    {drivers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                  <select 
+                    value={mediaFilterVehicle} 
+                    onChange={e => setMediaFilterVehicle(e.target.value)}
+                    className="h-10 px-3 bg-[#F5F6F8] border border-[#E2E6EB] rounded-lg text-[12px]"
+                  >
+                    <option value="all">All Vehicles</option>
+                    {vehicles.map(v => <option key={v.id} value={v.id}>{v.plate}</option>)}
+                  </select>
+                  <select 
+                    value={mediaFilterVerified} 
+                    onChange={e => setMediaFilterVerified(e.target.value as 'all' | 'verified' | 'pending')}
+                    className="h-10 px-3 bg-[#F5F6F8] border border-[#E2E6EB] rounded-lg text-[12px]"
+                  >
+                    <option value="all">All Status</option>
+                    <option value="verified">Verified</option>
+                    <option value="pending">Pending</option>
+                  </select>
+                  <button 
+                    onClick={() => {
+                      setMediaFilterDriver('all')
+                      setMediaFilterVehicle('all')
+                      setMediaFilterVerified('all')
+                    }}
+                    className="h-10 px-3 bg-[#F5F6F8] border border-[#E2E6EB] rounded-lg text-[12px] text-[#6B7280] hover:bg-[#E2E6EB]"
+                  >
+                    Clear Filters
+                  </button>
                 </div>
               </div>
+
+              {/* Media Grid */}
+              {(() => {
+                const filteredFills = fills
+                  .filter(f => {
+                    if (mediaFilterDriver !== 'all' && f.driverId !== mediaFilterDriver) return false
+                    if (mediaFilterVehicle !== 'all' && f.vehicleId !== mediaFilterVehicle) return false
+                    if (mediaFilterVerified === 'verified' && !f.verified) return false
+                    if (mediaFilterVerified === 'pending' && f.verified) return false
+                    return true
+                  })
+                  .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
+
+                if (filteredFills.length === 0) {
+                  return (
+                    <div className="py-12 text-center">
+                      <Camera className="w-10 h-10 text-[#D1D5DB] mx-auto mb-2" />
+                      <p className="text-[12px] text-[#6B7280]">No fills found with media</p>
+                    </div>
+                  )
+                }
+
+                return filteredFills.map(fill => {
+                  const v = vehicles.find(veh => String(veh.id) === String(fill.vehicleId) || veh.plate === fill.vehicleId)
+                  const d = drivers.find(drv => String(drv.id) === String(fill.driverId))
+                  const mediaItems = [
+                    { label: 'Video', url: fill.videoUrl, isVideo: true },
+                    { label: 'Pump', url: fill.pumpPhotoUrl, isVideo: false },
+                    { label: 'Receipt', url: fill.receiptPhotoUrl, isVideo: false },
+                    { label: 'Odo', url: fill.odoPhotoUrl, isVideo: false },
+                  ]
+
+                  return (
+                    <div key={fill.id} className="p-4 rounded-xl bg-white border border-[#E2E6EB]">
+                      {/* Fill Info Header */}
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-mono text-[14px] font-medium text-[#111827]">{v?.plate || fill.vehicleId}</p>
+                            {fill.verified && <CheckCircle2 className="w-4 h-4 text-[#10B981]" />}
+                          </div>
+                          <p className="text-[12px] text-[#6B7280]">{d?.name || fill.driverId} • {new Date(fill.time).toLocaleString()}</p>
+                          <p className="text-[11px] text-[#6B7280]">{fill.station} • {fill.kgs}kg • ₹{fill.total}</p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                          {fill.mismatch && (
+                            <span className="px-2 py-0.5 rounded-full bg-[#FEE2E2] text-[10px] text-[#991B1B] flex items-center gap-1">
+                              <MapPin className="w-3 h-3" /> {Math.round(fill.distanceDiff)}m
+                            </span>
+                          )}
+                          {fill.fuelDropPercent > 20 && (
+                            <span className="px-2 py-0.5 rounded-full bg-[#FEF3C7] text-[10px] text-[#92400E]">
+                              Fuel drop {fill.fuelDropPercent.toFixed(1)}%
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Media Grid */}
+                      <div className="grid grid-cols-2 gap-2 mb-3">
+                        {mediaItems.map((m, i) => (
+                          <div
+                            key={i}
+                            className={`block aspect-video rounded-lg border overflow-hidden relative cursor-pointer ${m.url ? 'bg-[#1F2937] border-[#374151]' : 'bg-[#F5F6F8] border-[#E2E6EB]'}`}
+                            onClick={() => m.url && setLightboxMedia({ url: m.url, label: m.label })}
+                          >
+                            {m.url ? (
+                              m.isVideo ? (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center">
+                                    <Play className="w-7 h-7 text-white ml-0.5" />
+                                  </div>
+                                  <span className="absolute bottom-1 left-1 text-[10px] text-white/70 bg-black/50 px-1.5 rounded">Video</span>
+                                </div>
+                              ) : (
+                                <img src={m.url} alt={m.label} className="w-full h-full object-cover" />
+                              )
+                            ) : (
+                              <div className="w-full h-full flex flex-col items-center justify-center gap-1">
+                                <Camera className="w-5 h-5 text-[#D1D5DB]" />
+                                <span className="text-[10px] text-[#D1D5DB]">{m.label}</span>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Verify Button */}
+                      {!fill.verified && (
+                        <button
+                          onClick={async () => {
+                            const updatedFill = { ...fill, verified: true, verifiedBy: owner?.name || 'Owner', verifiedAt: new Date().toISOString() }
+                            const allFills = storage.getFills()
+                            storage.saveFills(allFills.map(f => f.id === fill.id ? updatedFill : f))
+                            await googleSync.updateFill(fill.id, { verified: true, verifiedBy: owner?.name || 'Owner', verifiedAt: new Date().toISOString() })
+                            setRefreshKey(k => k + 1)
+                          }}
+                          className="w-full h-10 rounded-lg bg-[#E10600] text-white text-[12px] font-medium hover:bg-[#991B1B]"
+                        >
+                          Verify Fill
+                        </button>
+                      )}
+                      {fill.verified && (
+                        <div className="flex items-center justify-center gap-2 h-10 rounded-lg bg-[#DCFCE7] text-[#166534] text-[12px] font-medium">
+                          <CheckCircle2 className="w-4 h-4" />
+                          Verified by {fill.verifiedBy || 'Owner'} on {fill.verifiedAt ? new Date(fill.verifiedAt).toLocaleDateString() : new Date().toLocaleDateString()}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              })()}
             </div>
           )}
         </div>
@@ -2821,11 +3059,20 @@ function AdminDashboard({ lang, syncKey, syncStatus }: { lang: Language; syncKey
                               className="px-2.5 py-1 rounded-lg bg-[#DCFCE7] text-[#166534] text-[10px] font-medium">Unblock</button>
                           )}
                           {o.creditFrozen ? (
-                            <button onClick={() => { storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, creditFrozen: false } : x)); addAuditLog('unfreeze_credit', `Unfroze credit for ${o.business}`); setRefreshKey(k => k + 1) }}
-                              className="px-2.5 py-1 rounded-lg bg-[#DBEAFE] text-[#1E40AF] text-[10px] font-medium">Unfreeze</button>
+                            <button onClick={async () => {
+                              storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, creditFrozen: false } : x));
+                              await googleSync.updateOwner(o.id, { creditFrozen: false });
+                              addAuditLog('unfreeze_credit', `Unfroze credit for ${o.business}`);
+                              setRefreshKey(k => k + 1);
+                            }} className="px-2.5 py-1 rounded-lg bg-[#DBEAFE] text-[#1E40AF] text-[10px] font-medium">Unfreeze</button>
                           ) : (
-                            <button onClick={() => { storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, creditFrozen: true } : x)); addAuditLog('freeze_credit', `Froze credit for ${o.business}`); addNotification('credit', `${o.business} credit frozen`, 'critical'); setRefreshKey(k => k + 1) }}
-                              className="px-2.5 py-1 rounded-lg bg-[#FEF3C7] text-[#92400E] text-[10px] font-medium">Freeze</button>
+                            <button onClick={async () => {
+                              storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, creditFrozen: true } : x));
+                              await googleSync.updateOwner(o.id, { creditFrozen: true });
+                              addAuditLog('freeze_credit', `Froze credit for ${o.business}`);
+                              addNotification('credit', `${o.business} credit frozen`, 'critical');
+                              setRefreshKey(k => k + 1);
+                            }} className="px-2.5 py-1 rounded-lg bg-[#FEF3C7] text-[#92400E] text-[10px] font-medium">Freeze</button>
                           )}
                           <button onClick={() => setEditCredit({ id: o.id, val: String(o.creditLimit || '') })} className="px-2.5 py-1 rounded-lg bg-[#DBEAFE] text-[#1E40AF] text-[10px] font-medium">Limit</button>
                           <button onClick={() => setEditNotes({ id: o.id, val: o.adminNotes || '' })} className="px-2.5 py-1 rounded-lg bg-[#F5F6F8] text-[#6B7280] text-[10px] font-medium">Note</button>
@@ -2844,7 +3091,14 @@ function AdminDashboard({ lang, syncKey, syncStatus }: { lang: Language; syncKey
                               <span className="text-[11px] text-[#6B7280]">₹</span>
                               <input value={editCredit.val} onChange={e => setEditCredit({ ...editCredit, val: e.target.value })}
                                 className="flex-1 min-w-[120px] h-9 px-3 bg-white border border-[#E2E6EB] rounded-lg text-[12px]" placeholder="Credit limit" />
-                              <button onClick={() => { storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, creditLimit: parseInt(editCredit.val) || 0 } : x)); setEditCredit(null); addAuditLog('set_credit_limit', `Set limit ₹${editCredit.val} for ${o.business}`); setRefreshKey(k => k + 1) }}
+                              <button onClick={async () => {
+                                const newLimit = parseInt(editCredit.val) || 0;
+                                storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, creditLimit: newLimit } : x));
+                                await googleSync.updateOwner(o.id, { creditLimit: newLimit });
+                                setEditCredit(null);
+                                addAuditLog('set_credit_limit', `Set limit ₹${editCredit.val} for ${o.business}`);
+                                setRefreshKey(k => k + 1);
+                              }}
                                 className="px-3 h-9 rounded-lg bg-[#E10600] text-white text-[11px] font-medium">Save</button>
                               <button onClick={() => setEditCredit(null)} className="px-3 h-9 rounded-lg bg-[#F5F6F8] text-[#6B7280] text-[11px]">Cancel</button>
                             </div>
@@ -2853,7 +3107,13 @@ function AdminDashboard({ lang, syncKey, syncStatus }: { lang: Language; syncKey
                             <div className="flex items-center gap-2 flex-wrap">
                               <input value={editNotes.val} onChange={e => setEditNotes({ ...editNotes, val: e.target.value })}
                                 className="flex-1 min-w-[120px] h-9 px-3 bg-white border border-[#E2E6EB] rounded-lg text-[12px]" placeholder="Private note..." />
-                              <button onClick={() => { storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, adminNotes: editNotes.val } : x)); setEditNotes(null); addAuditLog('add_note', `Added note to ${o.business}`); setRefreshKey(k => k + 1) }}
+                              <button onClick={async () => {
+                                storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, adminNotes: editNotes.val } : x));
+                                await googleSync.updateOwner(o.id, { notes: editNotes.val });
+                                setEditNotes(null);
+                                addAuditLog('add_note', `Added note to ${o.business}`);
+                                setRefreshKey(k => k + 1);
+                              }}
                                 className="px-3 h-9 rounded-lg bg-[#E10600] text-white text-[11px] font-medium">Save</button>
                               <button onClick={() => setEditNotes(null)} className="px-3 h-9 rounded-lg bg-[#F5F6F8] text-[#6B7280] text-[11px]">Cancel</button>
                             </div>
@@ -3181,7 +3441,15 @@ function AdminDashboard({ lang, syncKey, syncStatus }: { lang: Language; syncKey
                         <div className="shrink-0 flex gap-1.5 flex-wrap">
                           {!a.resolved && (
                             <>
-                              <button onClick={() => { storage.saveAlerts(alerts.map(x => x.id === a.id ? { ...x, resolved: true } : x)); addAuditLog('resolve_alert', `Resolved ${a.type} alert: ${a.event}`); setRefreshKey(k => k + 1) }}
+                              <button onClick={async () => { 
+                                storage.saveAlerts(alerts.map(x => x.id === a.id ? { ...x, resolved: true } : x)); 
+                                await googleSync.resolveAlert(a.id, { 
+                                  resolvedBy: 'Admin', 
+                                  resolutionNote: `Resolved via Admin Dashboard` 
+                                }); 
+                                addAuditLog('resolve_alert', `Resolved ${a.type} alert: ${a.event}`); 
+                                setRefreshKey(k => k + 1) 
+                              }}
                                 className="px-2.5 py-1 rounded-lg bg-white border border-[#E2E6EB] text-[10px] font-medium text-[#6B7280]">Resolve</button>
                               {o && (
                                 <button onClick={() => { storage.saveOwners(owners.map(x => x.id === o.id ? { ...x, status: 'inactive' as const } : x)); addAuditLog('freeze_account', `Froze ${o.business} due to fraud alert`); addNotification('fraud', `${o.business} frozen due to ${a.type}`, 'critical'); setRefreshKey(k => k + 1) }}

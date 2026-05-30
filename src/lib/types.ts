@@ -65,6 +65,8 @@ export interface Fill {
   fuelDropPercent: number
   ownerId: string
   verified: boolean
+  verifiedBy?: string
+  verifiedAt?: string
   pendingVehicleApproval?: boolean
   paid?: boolean
   paidAt?: string
