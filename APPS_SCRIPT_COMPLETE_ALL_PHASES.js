@@ -1,6 +1,7 @@
 // CNG FUEL TRACKER - COMPLETE BACKEND (ALL PHASES)
 // Version: 3.0
 // Includes: Phase 1 (Credit), Phase 2 (Alerts), Phase 3 (Fill Verification), Phase 4 (Vehicle), Phase 5 (Stats), Phase 6 (Auth)
+// NEW: Added hyperlink URL extraction for media columns (videoUrl, pumpPhotoUrl, receiptPhotoUrl, odoPhotoUrl)
 // Paste ALL of this into your Apps Script project
 // Run: setupOrMigrate() once, then deploy as Web App
 
@@ -857,6 +858,17 @@ function handleGetData(SHEET_ID) {
     return val;
   };
   
+  // Helper to extract URL from hyperlink or return plain value
+  const extractUrlFromHyperlink = (richTextValue) => {
+    if (!richTextValue) return '';
+    const runs = richTextValue.getRuns();
+    for (let i = 0; i < runs.length; i++) {
+      const linkUrl = runs[i].getLinkUrl();
+      if (linkUrl) return linkUrl;
+    }
+    return richTextValue.getText() || '';
+  };
+  
   const getSheetData = (name) => {
     const sheet = ss.getSheetByName(name);
     if (!sheet) return [];
@@ -871,9 +883,35 @@ function handleGetData(SHEET_ID) {
     });
   };
   
+  // Special handler for Fills sheet to extract URLs from hyperlinks
+  const getFillsData = () => {
+    const sheet = ss.getSheetByName('Fills');
+    if (!sheet) return [];
+    const values = sheet.getDataRange().getValues();
+    const richTextValues = sheet.getDataRange().getRichTextValues();
+    const headers = values[0];
+    
+    // Column indices that might contain URLs
+    const urlColumns = ['videoUrl', 'pumpPhotoUrl', 'receiptPhotoUrl', 'odoPhotoUrl'];
+    
+    return values.slice(1).map((row, rowIndex) => {
+      const obj = {};
+      headers.forEach((h, i) => {
+        // For URL columns, try to extract URL from hyperlink
+        if (urlColumns.includes(h)) {
+          const richText = richTextValues[rowIndex + 1][i]; // +1 because we skipped header
+          obj[h] = extractUrlFromHyperlink(richText);
+        } else {
+          obj[h] = parseValue(row[i]);
+        }
+      });
+      return obj;
+    });
+  };
+  
   return json({
     success: true,
-    fills: getSheetData('Fills'),
+    fills: getFillsData(),
     drivers: getSheetData('Drivers'),
     vehicles: getSheetData('Vehicles'),
     owners: getSheetData('Owners'),
